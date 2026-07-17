@@ -246,15 +246,11 @@ impl SessionUi {
         self.show_list = !self.show_list;
         if self.show_list {
             self.list_follow = 0; // recenter on open
-            self.show_help = false;
         }
     }
 
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
-        if self.show_help {
-            self.show_list = false;
-        }
     }
 
     /// Toggle the filename/path line. Returns `true` when shown.
@@ -352,10 +348,19 @@ impl SessionUi {
 
     /// Resolve a mouse position against the last drawn frame.
     pub fn hit_target(&self, col: u16, row: u16) -> HitTarget {
+        // Playlist overlay absorbs hits on the left before center controls.
         if let Some(r) = self.hits.list_bar {
             if r.contains(col, row) {
                 return HitTarget::ListScroll(r.v_ratio_at(row));
             }
+        }
+        for (r, idx) in &self.hits.list {
+            if r.contains(col, row) {
+                return HitTarget::Jump(*idx);
+            }
+        }
+        if self.pointer_over_list(col, row) {
+            return HitTarget::None;
         }
         if let Some(r) = self.hits.progress {
             if r.contains(col, row) {
@@ -412,11 +417,6 @@ impl SessionUi {
                 return HitTarget::CavaToggle;
             }
         }
-        for (r, idx) in &self.hits.list {
-            if r.contains(col, row) {
-                return HitTarget::Jump(*idx);
-            }
-        }
         HitTarget::None
     }
 
@@ -469,19 +469,20 @@ impl SessionUi {
         let title_in =
             ease_out_cubic((self.track_since.elapsed().as_secs_f64() / 0.4).clamp(0.0, 1.0));
 
+        // Sidebars are overlays — center player stays put (like cava).
         let list_w = if self.show_list {
-            LIST_SIDEBAR_W.min(cols.saturating_sub(28))
+            LIST_SIDEBAR_W.min(cols.saturating_sub(8))
         } else {
             0
         };
         let help_w = if self.show_help {
-            HELP_SIDEBAR_W.min(cols.saturating_sub(28))
+            HELP_SIDEBAR_W.min(cols.saturating_sub(8))
         } else {
             0
         };
 
-        let content_cols = cols.saturating_sub(list_w).saturating_sub(help_w);
-        let content_x0 = list_w;
+        let content_cols = cols;
+        let content_x0 = 0usize;
 
         let block_w = content_cols.saturating_sub(4).clamp(28, 56);
         let max_title = block_w.saturating_sub(2);
@@ -813,14 +814,10 @@ impl SessionUi {
             paint_help_sidebar(&mut out, cols, rows, help_w)?;
         }
 
-        // Floating toast — top-right of the player region (left of help when open).
+        // Floating toast — top-right, tucked left of help overlay when open.
         if let Some(ref msg) = toast {
-            paint_toast_overlay(
-                &mut out,
-                content_x0 + content_cols,
-                msg,
-                &self.toast,
-            )?;
+            let right = cols.saturating_sub(help_w);
+            paint_toast_overlay(&mut out, right, msg, &self.toast)?;
         }
 
         queue!(out, EndSynchronizedUpdate)?;
@@ -963,7 +960,7 @@ fn paint_list_sidebar(
     playing: bool,
     t: f64,
 ) -> io::Result<()> {
-    if sidebar_w < 8 || names.is_empty() {
+    if sidebar_w < 8 {
         return Ok(());
     }
 
@@ -971,6 +968,16 @@ fn paint_list_sidebar(
     let bar_x = sidebar_w.saturating_sub(2);
     let text_x = 1usize;
     let name_w = sidebar_w.saturating_sub(8).max(4);
+
+    // Whole sidebar is a wheel-scroll target (even when empty).
+    hits.list_pane = Some(HitRect {
+        x: 0,
+        y: 1,
+        w: sidebar_w as u16,
+        h: rows.saturating_sub(2).max(1) as u16,
+    });
+    hits.list.clear();
+    hits.list_bar = None;
 
     // Divider
     for row in 1..rows.saturating_sub(1) {
@@ -985,7 +992,7 @@ fn paint_list_sidebar(
 
     let y0 = 1usize;
     paint_at(out, text_x as u16, y0 as u16, &[Span::fg(DIM, "playlist")])?;
-    let hint = format!("{}/{}", current_1based.max(1), names.len());
+    let hint = format!("{}/{}", current_1based.max(1), names.len().max(1));
     paint_at(
         out,
         text_x as u16,
@@ -993,19 +1000,24 @@ fn paint_list_sidebar(
         &[Span::fg(DIM, &hint)],
     )?;
 
+    if names.is_empty() {
+        paint_at(
+            out,
+            text_x as u16,
+            (y0 + 3) as u16,
+            &[Span::fg(DARK, "(empty)")],
+        )?;
+        return Ok(());
+    }
+
     let list_y0 = y0 + 3;
-    let vis = visible.min(rows.saturating_sub(list_y0 + 1)).max(1);
+    let foot_reserve = 2usize;
+    let vis = visible
+        .min(rows.saturating_sub(list_y0 + foot_reserve))
+        .max(1);
     let total = names.len();
     let max_scroll = total.saturating_sub(vis);
     let scroll = scroll.min(max_scroll);
-
-    hits.list_pane = Some(HitRect {
-        x: 0,
-        y: list_y0 as u16,
-        w: sidebar_w as u16,
-        h: vis as u16,
-    });
-    hits.list.clear();
 
     for row_i in 0..vis {
         let idx = scroll + row_i;
@@ -1042,35 +1054,33 @@ fn paint_list_sidebar(
         ));
     }
 
-    // Scrollbar (mouse-compatible) on the column before the rule.
-    if max_scroll > 0 && sidebar_w >= 10 {
+    // Scrollbar track + thumb (always drawn; drag/click when scrollable).
+    if sidebar_w >= 10 {
         let track_h = vis.max(1);
-        let thumb_h = ((vis as f64 / total as f64) * track_h as f64)
-            .round()
-            .clamp(1.0, track_h as f64) as usize;
+        let thumb_h = if total <= vis {
+            track_h
+        } else {
+            ((vis as f64 / total as f64) * track_h as f64)
+                .round()
+                .clamp(1.0, track_h as f64) as usize
+        };
         let thumb_max = track_h.saturating_sub(thumb_h);
         let thumb_y = if max_scroll == 0 {
             0
         } else {
             ((scroll as f64 / max_scroll as f64) * thumb_max as f64).round() as usize
         };
+        // 2-col hit area so the bar is easy to grab.
         hits.list_bar = Some(HitRect {
-            x: bar_x as u16,
+            x: bar_x.saturating_sub(1) as u16,
             y: list_y0 as u16,
-            w: 1,
+            w: 2,
             h: track_h as u16,
         });
         for i in 0..track_h {
-            let ch = if i >= thumb_y && i < thumb_y + thumb_h {
-                '┃'
-            } else {
-                '│'
-            };
-            let c = if i >= thumb_y && i < thumb_y + thumb_h {
-                GRAY
-            } else {
-                DARK
-            };
+            let on_thumb = i >= thumb_y && i < thumb_y + thumb_h;
+            let ch = if on_thumb { '┃' } else { '│' };
+            let c = if on_thumb { GRAY } else { DARK };
             let glyph = ch.to_string();
             paint_at(
                 out,

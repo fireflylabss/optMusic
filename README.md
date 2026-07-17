@@ -14,7 +14,7 @@ Powered by **MPV** (`libmpv`), with an optional discreet **cava** spectrum strip
    ▁▅█████▅▁
 ```
 
-Help (`?` / `h`) opens a **right sidebar**; `l` opens the **playlist** as a **left sidebar** (scroll with mouse wheel, ↑↓ / `j` `k`, or the scrollbar).
+Help (`?` / `h`) and playlist (`l`) open as **overlays** (player stays centered). Both can be open at once.
 
 ## Install
 
