@@ -15,11 +15,17 @@ use clap::{Parser, Subcommand};
     long_about = "optMusic (option music) — play local audio from the terminal.\n\
                   Binaries: optmusic · msc\n\
                   Engine: MPV (libmpv)\n\n\
-                  Keys:  space n/p ←→ {} m e [] , . +/- l r s q\n\n\
+                  Keys during playback (h for full list):\n  \
+                  space  pause     n/p  next/prev     ←→  ±5s     {}  ±60s\n  \
+                  +/-    volume    m    mute          e   eq      []  speed\n  \
+                  ,.     pitch     0    reset         l   list    v   cava\n  \
+                  q      quit\n\n\
+                  Cava: off by default; enable with --cava or toggle with v (needs `cava` on PATH).\n\n\
                   Examples:\n  \
                   msc play song.mp3\n  \
                   msc play ./music/ -s -l -c 2\n  \
                   msc play -m ~/Music\n  \
+                  msc play song.mp3 --cava\n  \
                   msc list ./albums -r\n  \
                   msc info song.mp3"
 )]
@@ -34,6 +40,10 @@ pub struct Cli {
         value_name = "DIR"
     )]
     pub music_dir: String,
+
+    /// Enable cava spectrum strip (off by default; requires `cava` on PATH)
+    #[arg(long = "cava", global = true)]
+    pub cava: bool,
 
     #[command(subcommand)]
     pub command: Option<Command>,

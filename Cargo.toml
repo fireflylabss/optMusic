@@ -1,10 +1,10 @@
 [package]
 name = "optmusic"
-version = "0.2.0"
+version = "0.2.2"
 edition = "2021"
 description = "optMusic — minimal black & white CLI music player (option music)"
 authors = ["AEFireflyLabs"]
-license = "MIT"
+license = "Apache-2.0"
 readme = "README.md"
 keywords = ["music", "audio", "player", "cli", "mp3", "mpv"]
 categories = ["command-line-utilities", "multimedia::audio"]

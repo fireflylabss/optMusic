@@ -257,6 +257,15 @@ impl Player {
         Ok(())
     }
 
+    /// Seek to a fraction of the current track duration (0.0 ..= 1.0).
+    pub fn seek_ratio(&mut self, ratio: f64) -> Result<()> {
+        let Some(dur) = self.duration() else {
+            return Ok(());
+        };
+        let pos = Duration::from_secs_f64(dur.as_secs_f64() * ratio.clamp(0.0, 1.0));
+        self.seek(pos)
+    }
+
     fn poll_events(&mut self) {
         while let Some(ev) = self.mpv.wait_event(0.0) {
             match ev {

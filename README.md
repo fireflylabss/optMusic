@@ -1,24 +1,38 @@
 # ♪ optMusic
 
 **optMusic** (*option music*) — minimal black & white CLI music player written in Rust.  
-Powered by **MPV** (`libmpv`).
+Powered by **MPV** (`libmpv`), with an optional discreet **cava** spectrum strip.
+
+```
+♪  optMusic
+   track title
+   ───●────────
+   ◂ ⏸ paused ▸
+   space · n/p · ←→ · ?
+   ▁▂▃▄▅▂▁·˙▁▂▃   ← cava under shortcuts (opt-in)
+```
 
 ## Install
 
 ### System deps
 
-Linux needs **libmpv** development files:
+| Dep | Why |
+|-----|-----|
+| **libmpv** | playback engine (required) |
+| **cava** | spectrum strip (optional) |
 
 ```bash
 # Arch / CachyOS
-sudo pacman -S mpv
+sudo pacman -S mpv cava
 
 # Debian / Ubuntu
-sudo apt install libmpv-dev pkg-config
+sudo apt install libmpv-dev pkg-config cava
 
 # Fedora
-sudo dnf install mpv-libs-devel pkgconf-pkg-config
+sudo dnf install mpv-libs-devel pkgconf-pkg-config cava
 ```
+
+PipeWire or PulseAudio should be running if you use cava.
 
 ### Build & install
 
@@ -26,8 +40,6 @@ sudo dnf install mpv-libs-devel pkgconf-pkg-config
 export CARGO_TARGET_DIR="$(pwd)/target"
 cargo install --path . --force
 ```
-
-Binaries on your PATH:
 
 | Command | Description |
 |---------|-------------|
@@ -41,18 +53,20 @@ msc play song.mp3
 optmusic play ./music --shuffle --loop
 msc play song.flac -v 60 -f 1.25 -c 2
 msc play -m ~/Music
+msc play song.mp3 --cava             # enable spectrum strip
 msc list ./music --recursive
 msc info song.mp3
 msc version
 ```
 
-Global options:
+### Global options
 
 | Flag | Meaning |
 |------|---------|
 | `-m` / `--music-dir DIR` | Library root (default `~/Music` when `play` has no paths) |
+| `--cava` | Enable cava spectrum strip (off by default) |
 
-Play options:
+### Play options
 
 | Flag | Meaning |
 |------|---------|
@@ -62,7 +76,7 @@ Play options:
 | `-s` / `--shuffle` | shuffle playlist |
 | `-l` / `--loop` | loop playlist |
 
-### Keyboard (during playback)
+### Keyboard
 
 | Key | Action |
 |-----|--------|
@@ -80,16 +94,40 @@ Play options:
 | `1`–`9` | jump to track N |
 | `l` | toggle playlist |
 | `r` | shuffle |
+| `v` | toggle cava strip |
 | `s` | stop |
-| `h` / `?` | help toast |
-| `q` | quit |
+| `h` / `?` | toggle keymap |
+| `q` / Esc | quit (or close keymap) |
+
+### Mouse
+
+| Action | Effect |
+|--------|--------|
+| click / drag progress | seek / scrub |
+| `◂` / `▸` | previous / next |
+| `▶` / `⏸` / status | pause / resume |
+| volume | mute |
+| `spd` / `ptch` / `eq` | nudge speed / pitch / cycle EQ |
+| cava strip | toggle cava |
+| playlist row | jump to track |
+| scroll wheel | seek ±5s |
+
+## Cava strip
+
+Off by default. With `--cava` or `v`, and `cava` installed, optMusic draws a **2-row spectrum strip under the shortcut footer** (content width). Soft greys only — no mini-viz in the status row.
+
+- PipeWire first, Pulse fallback
+- Click the strip or press `v` to toggle
+- Missing cava → decorative status bars only; playback unaffected
 
 ## Features
 
 - MPV-backed playback (mp3, flac, ogg, wav, m4a, opus, aac, …)
 - Mute, long seek, EQ presets, crossfade, speed & pitch
 - Default music directory (`~/Music`)
-- Live progress, centered B&W UI on an **alternate screen** (zero scrollback leak)
+- Optional cava spectrum strip (opt-in)
+- Mouse scrub + clickable controls
+- Centered B&W UI on an **alternate screen** (zero scrollback leak)
 - Instant controls (no Enter)
 - Shuffle & loop
 
@@ -98,9 +136,8 @@ Play options:
 - Rust 1.70+
 - **libmpv** (see Install)
 - System audio (PipeWire / PulseAudio / ALSA)
-
-If the build fails with `failed to initialize libmpv` or missing `mpv` pkg-config, install the packages above and retry.
+- Optional: **cava** for the spectrum strip
 
 ## License
 
-MIT
+Apache License 2.0 — see [`LICENSE`](LICENSE).
