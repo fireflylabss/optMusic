@@ -14,7 +14,7 @@ Powered by **MPV** (`libmpv`), with an optional discreet **cava** spectrum strip
    ▁▅█████▅▁
 ```
 
-Help (`?` / `h`) opens a **left sidebar** and shifts the player right.
+Help (`?` / `h`) opens a **right sidebar**; `l` opens the **playlist** as a **left sidebar** (scroll with mouse wheel, ↑↓ / `j` `k`, or the scrollbar).
 
 ## Install
 
@@ -96,13 +96,14 @@ msc version
 | `,` / `.` | pitch down / up |
 | `0` | reset speed & pitch |
 | `1`–`9` | jump to track N |
-| `l` | toggle playlist |
+| `l` | toggle playlist sidebar |
 | `r` | shuffle |
 | `f` | toggle filename / path line |
 | `v` | toggle cava strip |
 | `s` | stop |
 | `h` / `?` | toggle help sidebar |
-| `q` / Esc | quit (or close help) |
+| `↑` `↓` / `j` `k` | scroll playlist (when open) |
+| `q` / Esc | quit (or close help / playlist) |
 
 ### Mouse
 
@@ -116,7 +117,9 @@ msc version
 | `spd` / `ptch` / `eq` | nudge speed / pitch / cycle EQ |
 | cava bars | toggle cava |
 | playlist row | jump to track |
-| scroll wheel | seek ±5s |
+| playlist scrollbar | click / drag to scroll |
+| scroll wheel on playlist | scroll list |
+| scroll wheel elsewhere | seek ±5s |
 
 ## Cava bars
 

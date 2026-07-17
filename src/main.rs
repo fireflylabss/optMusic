@@ -217,6 +217,7 @@ fn run_session(
     let mut index: usize = 0;
     let mut held = false;
     let mut dragging_progress = false;
+    let mut dragging_list_scroll = false;
     let mut quitting = false;
     let mut done_msg = "done — thanks for listening ♪";
 
@@ -242,7 +243,7 @@ fn run_session(
             }
         }
 
-        let list_names: Vec<String> = if ui.show_list() {
+        let list_names: Vec<String> = if ui.list_panel_active() {
             playlist
                 .tracks()
                 .iter()
@@ -278,7 +279,6 @@ fn run_session(
             eq_label,
             paused: held || player.is_paused(),
             stopped: held,
-            show_list: ui.show_list(),
             list_names: &list_names,
             toast: toast_owned.as_deref(),
         };
@@ -290,6 +290,36 @@ fn run_session(
                 match event::read() {
                     Ok(Event::Key(key)) => {
                         if key.kind == KeyEventKind::Press {
+                            // Playlist sidebar scrolls with arrows / j k / page keys.
+                            if ui.show_list() {
+                                match key.code {
+                                    KeyCode::Up | KeyCode::Char('k') => {
+                                        ui.list_scroll_by(-1);
+                                        continue;
+                                    }
+                                    KeyCode::Down | KeyCode::Char('j') => {
+                                        ui.list_scroll_by(1);
+                                        continue;
+                                    }
+                                    KeyCode::PageUp => {
+                                        ui.list_scroll_by(-8);
+                                        continue;
+                                    }
+                                    KeyCode::PageDown => {
+                                        ui.list_scroll_by(8);
+                                        continue;
+                                    }
+                                    KeyCode::Home => {
+                                        ui.list_scroll_ratio(0.0);
+                                        continue;
+                                    }
+                                    KeyCode::End => {
+                                        ui.list_scroll_ratio(1.0);
+                                        continue;
+                                    }
+                                    _ => {}
+                                }
+                            }
                             match handle_key(key, player) {
                                 Action::None => {}
                                 Action::List => ui.toggle_list(),
@@ -301,10 +331,13 @@ fn run_session(
                                 Action::Quit => {
                                     if ui.show_help() {
                                         ui.toggle_help();
+                                    } else if ui.show_list() {
+                                        ui.toggle_list();
                                     } else {
                                         player.stop();
                                         done_msg = "bye — thanks for listening ♪";
                                         dragging_progress = false;
+                                        dragging_list_scroll = false;
                                         quitting = true;
                                     }
                                 }
@@ -414,9 +447,17 @@ fn run_session(
                             HitTarget::Progress(ratio) => {
                                 held = false;
                                 dragging_progress = true;
+                                dragging_list_scroll = false;
                                 let _ = player.seek_ratio(ratio);
                             }
+                            HitTarget::ListScroll(ratio) => {
+                                dragging_list_scroll = true;
+                                dragging_progress = false;
+                                ui.list_scroll_ratio(ratio);
+                            }
                             HitTarget::PlayPause => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 if held {
                                     held = false;
                                     if let Some(t) = playlist.get(index) {
@@ -427,6 +468,8 @@ fn run_session(
                                 }
                             }
                             HitTarget::Prev => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 held = false;
                                 if !player.is_idle()
                                     && player.position() > Duration::from_secs(3)
@@ -442,6 +485,8 @@ fn run_session(
                                 }
                             }
                             HitTarget::Next => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 held = false;
                                 if index + 1 < playlist.len() {
                                     index += 1;
@@ -458,34 +503,50 @@ fn run_session(
                                 }
                             }
                             HitTarget::Volume => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let muted = player.toggle_mute();
                                 ui.toast(if muted { "muted" } else { "unmuted" });
                             }
                             HitTarget::VolumeUp => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let v = player.volume_step_up();
                                 ui.toast(format!("volume {v}%"));
                             }
                             HitTarget::VolumeDown => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let v = player.volume_step_down();
                                 ui.toast(format!("volume {v}%"));
                             }
                             HitTarget::Eq => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let eq = player.cycle_eq();
                                 ui.toast(format!("eq {}", eq.label()));
                             }
                             HitTarget::Speed => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let s = player.speed_up();
                                 ui.toast(format!("speed {s:.1}x"));
                             }
                             HitTarget::Pitch => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let p = player.pitch_up();
                                 ui.toast(format!("pitch {p:.2}"));
                             }
                             HitTarget::CavaToggle => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 let msg = ui.toggle_cava();
                                 ui.toast(msg);
                             }
                             HitTarget::Jump(n) => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
                                 if n >= 1 && n <= playlist.len() {
                                     held = false;
                                     index = n - 1;
@@ -496,10 +557,15 @@ fn run_session(
                             }
                             HitTarget::None => {
                                 dragging_progress = false;
+                                dragging_list_scroll = false;
                             }
                         },
                         MouseEventKind::Drag(MouseButton::Left) => {
-                            if dragging_progress {
+                            if dragging_list_scroll {
+                                if let Some(ratio) = ui.list_scroll_ratio_at_row(m.row) {
+                                    ui.list_scroll_ratio(ratio);
+                                }
+                            } else if dragging_progress {
                                 if let Some(ratio) = ui.progress_ratio_at_col(m.column) {
                                     let _ = player.seek_ratio(ratio);
                                 }
@@ -507,9 +573,22 @@ fn run_session(
                         }
                         MouseEventKind::Up(MouseButton::Left) => {
                             dragging_progress = false;
+                            dragging_list_scroll = false;
                         }
-                        MouseEventKind::ScrollUp => player.seek_short_back(),
-                        MouseEventKind::ScrollDown => player.seek_short_forward(),
+                        MouseEventKind::ScrollUp => {
+                            if ui.pointer_over_list(m.column, m.row) {
+                                ui.list_scroll_by(-3);
+                            } else {
+                                player.seek_short_back();
+                            }
+                        }
+                        MouseEventKind::ScrollDown => {
+                            if ui.pointer_over_list(m.column, m.row) {
+                                ui.list_scroll_by(3);
+                            } else {
+                                player.seek_short_forward();
+                            }
+                        }
                         _ => {}
                     },
                     Ok(_) => {}

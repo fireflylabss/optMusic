@@ -9,12 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Added
 
 - **`f`** toggles the filename/path line under the track title (session-persistent; toast `filename off/on`).
+- Soft **open/close animations** for help, playlist, and toasts (slide + fade).
 
 ### Changed
 
-- **Cava** — classic vertical **bar** columns under the footer (default cava look), not the 2-row glyph strip.
-- **Toast** — volume / speed / pitch / eq / etc. feedback is a floating boxed overlay in the **top-right** corner (no layout shift).
-- Help (`?` / `h`): **left sidebar** that shifts the player right.
+- **Cava** — classic vertical **bar** columns under the footer (default cava look); overlay only — toggling does not shift the player.
+- **Toast** — floating boxed overlay in the **top-right** of the player area (slide-in / fade-out).
+- Help (`?` / `h`): **right sidebar** with slide animation; synchronized redraws avoid flicker.
+- Playlist (`l`): **left sidebar** with mouse-wheel / ↑↓`jk` / PgUp·PgDn scroll and a **draggable scrollbar**; click a row to jump. Esc/`l` closes.
 
 ### Fixed
 
