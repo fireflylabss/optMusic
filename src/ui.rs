@@ -60,7 +60,10 @@ pub enum HitTarget {
     PlayPause,
     Prev,
     Next,
+    /// Mute toggle on the volume label.
     Volume,
+    VolumeUp,
+    VolumeDown,
     Eq,
     Speed,
     Pitch,
@@ -103,6 +106,8 @@ struct HitMap {
     prev: Option<HitRect>,
     next: Option<HitRect>,
     volume: Option<HitRect>,
+    volume_up: Option<HitRect>,
+    volume_down: Option<HitRect>,
     eq: Option<HitRect>,
     speed: Option<HitRect>,
     pitch: Option<HitRect>,
@@ -275,6 +280,16 @@ impl SessionUi {
                 return HitTarget::PlayPause;
             }
         }
+        if let Some(r) = self.hits.volume_down {
+            if r.contains(col, row) {
+                return HitTarget::VolumeDown;
+            }
+        }
+        if let Some(r) = self.hits.volume_up {
+            if r.contains(col, row) {
+                return HitTarget::VolumeUp;
+            }
+        }
         if let Some(r) = self.hits.volume {
             if r.contains(col, row) {
                 return HitTarget::Volume;
@@ -356,7 +371,16 @@ impl SessionUi {
         let title_in =
             ease_out_cubic((self.track_since.elapsed().as_secs_f64() / 0.4).clamp(0.0, 1.0));
 
-        let block_w = cols.saturating_sub(4).clamp(28, 56);
+        // Help opens as a right sidebar and shifts the player left.
+        let sidebar_w = if self.show_help {
+            HELP_SIDEBAR_W.min(cols.saturating_sub(24))
+        } else {
+            0
+        };
+        let content_cols = cols.saturating_sub(sidebar_w);
+        let content_x0 = 0usize;
+
+        let block_w = content_cols.saturating_sub(4).clamp(28, 56);
         let max_title = block_w.saturating_sub(2);
 
         // Stable glyphs when paused/stopped — no blinky frame swaps.
@@ -392,8 +416,6 @@ impl SessionUi {
         let eq = state.eq_label;
         let toast = state.toast.map(|m| truncate(m, max_title));
         let cava_levels = self.cava.as_ref().map(|c| c.snapshot());
-        // Tiny decorative viz only — live cava lives under the shortcut footer.
-        let viz = eq_bars(t, playing, state.paused);
 
         let mut list_rows: Vec<(bool, String, usize)> = Vec::new();
         if state.show_list {
@@ -421,16 +443,14 @@ impl SessionUi {
             }
         }
 
-        let show_cava_strip = cava_levels.is_some() && !self.show_help;
+        let show_cava_strip = cava_levels.is_some();
         let cava_rows = if show_cava_strip { 2usize } else { 0 };
 
         let mut block_h = 8usize;
-        if toast.is_some() && !self.show_help {
+        if toast.is_some() {
             block_h += 1;
         }
-        if self.show_help {
-            block_h += 1 + help_line_count() + 1;
-        } else if state.show_list {
+        if state.show_list {
             block_h += 1 + list_rows.len() + 1;
         } else {
             block_h += 1;
@@ -453,21 +473,34 @@ impl SessionUi {
             mix(BRIGHT, DARK, 1.0 - intro)
         };
         let brand_c = mix(BRIGHT, DARK, 1.0 - intro);
-        paint_centered(
+        paint_in_region(
             &mut out,
             y as u16,
-            cols,
+            content_x0,
+            content_cols,
             &[Span::fg(note_c, "♪  "), Span::fg(brand_c, APP_NAME)],
         )?;
         y += 2;
 
         let title_c = gray(lerp(70.0, 245.0, title_in * intro));
-        paint_centered(&mut out, y as u16, cols, &[Span::fg(title_c, &title)])?;
+        paint_in_region(
+            &mut out,
+            y as u16,
+            content_x0,
+            content_cols,
+            &[Span::fg(title_c, &title)],
+        )?;
         y += 1;
 
         let path_c = mix(DIM, DARK, 1.0 - intro * 0.85);
-        paint_centered(&mut out, y as u16, cols, &[Span::fg(path_c, &path)])?;
-        y += 2; // gap before progress (no cava here)
+        paint_in_region(
+            &mut out,
+            y as u16,
+            content_x0,
+            content_cols,
+            &[Span::fg(path_c, &path)],
+        )?;
+        y += 2; // gap before progress
 
         let knob_c = if playing {
             gray(lerp(190.0, 255.0, breath(t, 2.0)))
@@ -486,9 +519,20 @@ impl SessionUi {
             Span::fg(DIM, "  "),
             Span::fg(DIM, &total_s),
         ];
-        let prog_x = paint_centered(&mut out, y as u16, cols, &progress_spans)?;
+        let prog_x = paint_in_region(
+            &mut out,
+            y as u16,
+            content_x0,
+            content_cols,
+            &progress_spans,
+        )?;
         let bar_x = prog_x + pos_s.chars().count() as u16 + 2;
-        self.hits.progress = Some(HitRect { x: bar_x, y: y as u16, w: (filled.chars().count() + knob.chars().count() + empty.chars().count()) as u16, h: 1 });
+        self.hits.progress = Some(HitRect {
+            x: bar_x,
+            y: y as u16,
+            w: (filled.chars().count() + knob.chars().count() + empty.chars().count()) as u16,
+            h: 1,
+        });
         y += 1;
 
         let st_color = if state.stopped {
@@ -498,9 +542,11 @@ impl SessionUi {
         } else {
             gray(lerp(210.0, 245.0, breath(t, 3.2)))
         };
-        // ▂ prev · icon status · next ▂  ·  viz · idx · vol
+        // ◂  icon status  ▸  ·  idx  ·  −  vol  +
         let prev_g = "◂";
         let next_g = "▸";
+        let vol_minus = "−";
+        let vol_plus = "+";
         let status_spans = [
             Span::fg(DIM, prev_g),
             Span::fg(DARK, "  "),
@@ -510,23 +556,69 @@ impl SessionUi {
             Span::fg(DARK, "  "),
             Span::fg(DIM, next_g),
             Span::fg(DARK, "  ·  "),
-            Span::fg(if playing { GRAY } else { DARK }, &viz),
-            Span::fg(DARK, "  ·  "),
             Span::fg(GRAY, &idx),
             Span::fg(DARK, "  ·  "),
+            Span::fg(DIM, vol_minus),
+            Span::fg(DARK, " "),
             Span::fg(GRAY, &vol),
+            Span::fg(DARK, " "),
+            Span::fg(DIM, vol_plus),
         ];
-        let status_x = paint_centered(&mut out, y as u16, cols, &status_spans)?;
+        let status_x = paint_in_region(
+            &mut out,
+            y as u16,
+            content_x0,
+            content_cols,
+            &status_spans,
+        )?;
         let mut cx = status_x;
-        self.hits.prev = Some(HitRect { x: cx, y: y as u16, w: prev_g.chars().count() as u16, h: 1 });
+        self.hits.prev = Some(HitRect {
+            x: cx,
+            y: y as u16,
+            w: prev_g.chars().count() as u16,
+            h: 1,
+        });
         cx += prev_g.chars().count() as u16 + 2;
         let pp_w = (icon.chars().count() + 2 + status.chars().count()) as u16;
-        self.hits.play_pause = Some(HitRect { x: cx, y: y as u16, w: pp_w, h: 1 });
+        self.hits.play_pause = Some(HitRect {
+            x: cx,
+            y: y as u16,
+            w: pp_w,
+            h: 1,
+        });
         cx += pp_w + 2;
-        self.hits.next = Some(HitRect { x: cx, y: y as u16, w: next_g.chars().count() as u16, h: 1 });
+        self.hits.next = Some(HitRect {
+            x: cx,
+            y: y as u16,
+            w: next_g.chars().count() as u16,
+            h: 1,
+        });
+        // Volume controls sit at the end: − vol +
+        let vol_plus_w = vol_plus.chars().count() as u16;
         let vol_w = vol.chars().count() as u16;
-        let vol_x = status_x + spans_width(&status_spans) as u16 - vol_w;
-        self.hits.volume = Some(HitRect { x: vol_x, y: y as u16, w: vol_w, h: 1 });
+        let vol_minus_w = vol_minus.chars().count() as u16;
+        let end = status_x + spans_width(&status_spans) as u16;
+        let plus_x = end - vol_plus_w;
+        let vol_x = plus_x - 1 - vol_w;
+        let minus_x = vol_x - 1 - vol_minus_w;
+        self.hits.volume_down = Some(HitRect {
+            x: minus_x.saturating_sub(1),
+            y: y as u16,
+            w: vol_minus_w + 2,
+            h: 1,
+        });
+        self.hits.volume = Some(HitRect {
+            x: vol_x,
+            y: y as u16,
+            w: vol_w,
+            h: 1,
+        });
+        self.hits.volume_up = Some(HitRect {
+            x: plus_x.saturating_sub(1),
+            y: y as u16,
+            w: vol_plus_w + 2,
+            h: 1,
+        });
         y += 1;
 
         let meta_spans = [
@@ -539,75 +631,117 @@ impl SessionUi {
             Span::fg(DIM, "eq "),
             Span::fg(GRAY, eq),
         ];
-        let meta_x = paint_centered(&mut out, y as u16, cols, &meta_spans)?;
+        let meta_x = paint_in_region(
+            &mut out,
+            y as u16,
+            content_x0,
+            content_cols,
+            &meta_spans,
+        )?;
         let mut mx = meta_x;
-        self.hits.speed = Some(HitRect { x: mx, y: y as u16, w: (4 + spd.chars().count()) as u16, h: 1 });
+        self.hits.speed = Some(HitRect {
+            x: mx,
+            y: y as u16,
+            w: (4 + spd.chars().count()) as u16,
+            h: 1,
+        });
         mx += 4 + spd.chars().count() as u16;
         mx += 3; // "  ·  "
-        self.hits.pitch = Some(HitRect { x: mx, y: y as u16, w: (5 + ptch.chars().count()) as u16, h: 1 });
+        self.hits.pitch = Some(HitRect {
+            x: mx,
+            y: y as u16,
+            w: (5 + ptch.chars().count()) as u16,
+            h: 1,
+        });
         mx += 5 + ptch.chars().count() as u16;
         mx += 3;
-        self.hits.eq = Some(HitRect { x: mx, y: y as u16, w: (3 + eq.chars().count()) as u16, h: 1 });
+        self.hits.eq = Some(HitRect {
+            x: mx,
+            y: y as u16,
+            w: (3 + eq.chars().count()) as u16,
+            h: 1,
+        });
         y += 1;
 
-        if self.show_help {
+        if let Some(ref msg) = toast {
+            let toast_c = toast_color(&self.toast);
+            paint_in_region(
+                &mut out,
+                y as u16,
+                content_x0,
+                content_cols,
+                &[Span::fg(DARK, "·  "), Span::fg(toast_c, msg)],
+            )?;
             y += 1;
-            y = paint_help(&mut out, y as u16, cols)? as usize;
-        } else {
-            if let Some(ref msg) = toast {
-                let toast_c = toast_color(&self.toast);
-                paint_centered(
+        }
+
+        if state.show_list {
+            y += 1;
+            self.hits.list.clear();
+            for (current, line, track_n) in &list_rows {
+                let color = if *current {
+                    if playing {
+                        gray(lerp(210.0, 245.0, breath(t, 2.6)))
+                    } else {
+                        BRIGHT
+                    }
+                } else {
+                    DIM
+                };
+                let lx = paint_in_region(
                     &mut out,
                     y as u16,
-                    cols,
-                    &[Span::fg(DARK, "·  "), Span::fg(toast_c, msg)],
+                    content_x0,
+                    content_cols,
+                    &[Span::fg(color, line)],
                 )?;
+                self.hits.list.push((
+                    HitRect {
+                        x: lx,
+                        y: y as u16,
+                        w: line.chars().count() as u16,
+                        h: 1,
+                    },
+                    *track_n,
+                ));
                 y += 1;
-            }
-
-            if state.show_list {
-                y += 1;
-                self.hits.list.clear();
-                for (current, line, track_n) in &list_rows {
-                    let color = if *current {
-                        if playing {
-                            gray(lerp(210.0, 245.0, breath(t, 2.6)))
-                        } else {
-                            BRIGHT
-                        }
-                    } else {
-                        DIM
-                    };
-                    let lx = paint_centered(&mut out, y as u16, cols, &[Span::fg(color, line)])?;
-                    self.hits.list.push((
-                        HitRect { x: lx, y: y as u16, w: line.chars().count() as u16, h: 1 },
-                        *track_n,
-                    ));
-                    y += 1;
-                }
             }
         }
 
         y += 1;
         let footer_dim = mix(DARK, Color::Black, 1.0 - intro);
         let footer_key = mix(GRAY, DARK, 1.0 - intro * 0.7);
-        paint_key_footer(&mut out, y as u16, cols, footer_key, footer_dim)?;
+        paint_key_footer(
+            &mut out,
+            y as u16,
+            content_x0,
+            content_cols,
+            footer_key,
+            footer_dim,
+        )?;
         y += 1;
 
-        // Cava sits under the shortcut bar — slightly taller strip.
+        // Cava sits under the shortcut bar — smooth 2-row strip.
         if show_cava_strip {
             y += 1;
             if let Some(ref levels) = cava_levels {
                 let intensity = if playing {
-                    0.65
+                    0.72
                 } else if state.paused {
-                    0.3
+                    0.28
                 } else {
-                    0.15
+                    0.12
                 };
-                let strip_w = block_w.saturating_add(4).min(cols.saturating_sub(4));
-                let (strip_x, strip_h) =
-                    paint_cava_strip(&mut out, y as u16, cols, strip_w, levels, intensity)?;
+                let strip_w = block_w.saturating_add(4).min(content_cols.saturating_sub(4));
+                let (strip_x, strip_h) = paint_cava_strip(
+                    &mut out,
+                    y as u16,
+                    content_x0,
+                    content_cols,
+                    strip_w,
+                    levels,
+                    intensity,
+                )?;
                 self.hits.cava = Some(HitRect {
                     x: strip_x,
                     y: y as u16,
@@ -615,6 +749,10 @@ impl SessionUi {
                     h: strip_h.max(1),
                 });
             }
+        }
+
+        if self.show_help && sidebar_w > 0 {
+            paint_help_sidebar(&mut out, cols, rows, sidebar_w)?;
         }
 
         out.flush()?;
@@ -655,50 +793,89 @@ const HELP_SECTIONS: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
-fn help_line_count() -> usize {
-    let mut n = 0;
+/// Right sidebar width when help is open.
+const HELP_SIDEBAR_W: usize = 26;
+
+fn help_sidebar_height() -> usize {
+    let mut n = 1; // top pad
     for (i, (_title, rows)) in HELP_SECTIONS.iter().enumerate() {
         if i > 0 {
             n += 1; // blank between sections
         }
         n += 1 + rows.len(); // title + rows
     }
-    n + 1 // "h closes"
+    n + 2 // blank + "h close"
 }
 
-fn paint_help(out: &mut impl Write, mut y: u16, cols: usize) -> io::Result<u16> {
-    for (si, (title, rows)) in HELP_SECTIONS.iter().enumerate() {
+fn paint_help_sidebar(
+    out: &mut impl Write,
+    cols: usize,
+    rows: usize,
+    sidebar_w: usize,
+) -> io::Result<()> {
+    let x0 = cols.saturating_sub(sidebar_w);
+    let inner_w = sidebar_w.saturating_sub(2).max(12);
+    let h = help_sidebar_height().min(rows.saturating_sub(2));
+    let mut y = rows.saturating_sub(h) / 2;
+    if y < 1 {
+        y = 1;
+    }
+
+    // Soft vertical rule separating player from help.
+    for row in 1..rows.saturating_sub(1) {
+        queue!(
+            out,
+            MoveTo(x0 as u16, row as u16),
+            SetForegroundColor(DARK),
+            Print("│"),
+            ResetColor
+        )?;
+    }
+
+    let pad = 2usize; // after the rule
+    let text_x = x0 + pad;
+
+    for (si, (title, rows_sec)) in HELP_SECTIONS.iter().enumerate() {
         if si > 0 {
             y += 1;
         }
-        paint_centered(out, y, cols, &[Span::fg(DIM, title)])?;
+        if y >= rows.saturating_sub(1) {
+            break;
+        }
+        paint_at(out, text_x as u16, y as u16, &[Span::fg(DIM, title)])?;
         y += 1;
-        for (keys, action) in *rows {
+        for (keys, action) in *rows_sec {
+            if y >= rows.saturating_sub(1) {
+                break;
+            }
             let key_col = format!("{keys:<6}");
-            paint_centered(
+            let action_t = truncate(action, inner_w.saturating_sub(8));
+            paint_at(
                 out,
-                y,
-                cols,
+                text_x as u16,
+                y as u16,
                 &[
                     Span::fg(BRIGHT, &key_col),
                     Span::fg(DARK, " "),
-                    Span::fg(GRAY, action),
+                    Span::fg(GRAY, &action_t),
                 ],
             )?;
             y += 1;
         }
     }
-    y += 1;
-    paint_centered(out, y, cols, &[Span::fg(DARK, "h  close")])?;
-    y += 1;
-    Ok(y)
+    if y + 1 < rows.saturating_sub(1) {
+        y += 1;
+        paint_at(out, text_x as u16, y as u16, &[Span::fg(DARK, "h  close")])?;
+    }
+    Ok(())
 }
 
 /// Compact footer: bright keys, dim gaps.
 fn paint_key_footer(
     out: &mut impl Write,
     y: u16,
-    cols: usize,
+    region_x: usize,
+    region_w: usize,
     key_c: Color,
     gap_c: Color,
 ) -> io::Result<()> {
@@ -710,7 +887,7 @@ fn paint_key_footer(
         }
         spans.push(Span::fg(key_c, key));
     }
-    paint_centered(out, y, cols, &spans).map(|_| ())
+    paint_in_region(out, y, region_x, region_w, &spans).map(|_| ())
 }
 
 struct Span<'a> {
@@ -731,16 +908,7 @@ fn spans_width(spans: &[Span<'_>]) -> usize {
     spans.iter().map(|s| s.text.chars().count()).sum()
 }
 
-/// Paint centered; returns starting column of the content.
-fn paint_centered(
-    out: &mut impl Write,
-    y: u16,
-    cols: usize,
-    spans: &[Span<'_>],
-) -> io::Result<u16> {
-    let w = spans_width(spans);
-    let x = cols.saturating_sub(w) / 2;
-    queue!(out, MoveTo(x as u16, y))?;
+fn paint_spans(out: &mut impl Write, spans: &[Span<'_>]) -> io::Result<()> {
     for span in spans {
         if let Some(c) = span.color {
             queue!(out, SetForegroundColor(c))?;
@@ -750,6 +918,27 @@ fn paint_centered(
         queue!(out, Print(span.text))?;
     }
     queue!(out, ResetColor)?;
+    Ok(())
+}
+
+/// Paint left-aligned at an absolute column.
+fn paint_at(out: &mut impl Write, x: u16, y: u16, spans: &[Span<'_>]) -> io::Result<()> {
+    queue!(out, MoveTo(x, y))?;
+    paint_spans(out, spans)
+}
+
+/// Paint centered inside a horizontal region; returns starting column of the content.
+fn paint_in_region(
+    out: &mut impl Write,
+    y: u16,
+    region_x: usize,
+    region_w: usize,
+    spans: &[Span<'_>],
+) -> io::Result<u16> {
+    let w = spans_width(spans);
+    let x = region_x + region_w.saturating_sub(w) / 2;
+    queue!(out, MoveTo(x as u16, y))?;
+    paint_spans(out, spans)?;
     Ok(x as u16)
 }
 
@@ -758,39 +947,53 @@ fn paint_centered(
 fn paint_cava_strip(
     out: &mut impl Write,
     y: u16,
-    cols: usize,
+    region_x: usize,
+    region_w: usize,
     block_w: usize,
     levels: &[f32],
     intensity: f64,
 ) -> io::Result<(u16, u16)> {
     if levels.is_empty() || block_w == 0 {
-        return Ok(((cols / 2) as u16, 0));
+        return Ok(((region_x + region_w / 2) as u16, 0));
     }
-    const LO: &[char] = &[' ', '·', '˙', '▁', '▂'];
-    const HI: &[char] = &[' ', '▁', '▂', '▃', '▄'];
+    // Soft ramp — denser mid tones, less “digital stair” look.
+    const LO: &[char] = &[' ', ' ', '·', '˙', '▁', '▂', '▃', '▄'];
+    const HI: &[char] = &[' ', ' ', '·', '▁', '▂', '▃', '▄', '▅'];
     let intensity = intensity.clamp(0.0, 1.0);
     let n = levels.len();
+    let n_f = (n.saturating_sub(1)).max(1) as f64;
 
     let mut top = String::with_capacity(block_w);
     let mut bot = String::with_capacity(block_w);
     for x in 0..block_w {
-        let i = x * n / block_w;
-        let left = levels[i.saturating_sub(1)];
-        let mid = levels[i];
-        let right = levels[(i + 1).min(n - 1)];
-        let level = ((left + mid * 2.0 + right) / 4.0).clamp(0.0, 1.0) as f64 * intensity;
-        let level = (level * 0.9).sqrt();
-        // Split into upper / lower half for a slightly taller strip
-        let upper = ((level - 0.45).max(0.0) / 0.55).clamp(0.0, 1.0);
-        let lower = (level / 0.55).clamp(0.0, 1.0);
-        let ui = (upper * (HI.len() - 1) as f64).round() as usize;
-        let li = (lower * (LO.len() - 1) as f64).round() as usize;
+        // Continuous sample across bars with neighbor blend.
+        let pos = if block_w <= 1 {
+            0.0
+        } else {
+            x as f64 / (block_w - 1) as f64 * n_f
+        };
+        let i0 = pos.floor() as usize;
+        let i1 = (i0 + 1).min(n - 1);
+        let frac = (pos - i0 as f64).clamp(0.0, 1.0) as f32;
+        let mid = levels[i0] * (1.0 - frac) + levels[i1] * frac;
+        let left = levels[i0.saturating_sub(1)];
+        let right = levels[i1.min(n - 1)];
+        let level = ((left * 0.2 + mid * 0.6 + right * 0.2) as f64).clamp(0.0, 1.0) * intensity;
+        // Mild gamma so quiet audio still reads, peaks don’t clip hard.
+        let level = level.powf(0.72);
+
+        // Split into upper / lower half for a slightly taller strip.
+        let lower = (level * 1.15).clamp(0.0, 1.0);
+        let upper = ((level - 0.42).max(0.0) / 0.58).clamp(0.0, 1.0);
+        // Floor (not round) for smoother motion between frames.
+        let ui = (upper * (HI.len() - 1) as f64).floor() as usize;
+        let li = (lower * (LO.len() - 1) as f64).floor() as usize;
         top.push(HI[ui.min(HI.len() - 1)]);
         bot.push(LO[li.min(LO.len() - 1)]);
     }
-    let color = mix(CAVA_DIM, CAVA_SOFT, intensity * 0.85);
-    let x0 = paint_centered(out, y, cols, &[Span::fg(color, &top)])?;
-    paint_centered(out, y + 1, cols, &[Span::fg(color, &bot)])?;
+    let color = mix(CAVA_DIM, CAVA_SOFT, intensity * 0.9);
+    let x0 = paint_in_region(out, y, region_x, region_w, &[Span::fg(color, &top)])?;
+    paint_in_region(out, y + 1, region_x, region_w, &[Span::fg(color, &bot)])?;
     Ok((x0, 2))
 }
 
@@ -838,27 +1041,6 @@ fn color_level(c: Color) -> u8 {
 
 fn mix(a: Color, b: Color, t: f64) -> Color {
     gray(lerp(color_level(a) as f64, color_level(b) as f64, t))
-}
-
-/// Tiny equalizer viz — smooth when playing, frozen when paused.
-fn eq_bars(t: f64, playing: bool, paused: bool) -> String {
-    const LEVELS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆'];
-    let n = 5;
-    let mut s = String::with_capacity(n);
-    for i in 0..n {
-        let level = if playing {
-            let phase = t * 5.2 + i as f64 * 1.05;
-            let v = phase.sin() * 0.5 + 0.5;
-            let v = v * v * (3.0 - 2.0 * v); // smoothstep
-            ((v * 0.92 + 0.04) * (LEVELS.len() - 1) as f64).round() as usize
-        } else if paused {
-            1 // static — no blink while paused
-        } else {
-            0
-        };
-        s.push(LEVELS[level.min(LEVELS.len() - 1)]);
-    }
-    s
 }
 
 fn toast_color(toast: &Option<(String, Instant)>) -> Color {

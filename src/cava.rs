@@ -134,7 +134,10 @@ channels = mono
 
 [smoothing]
 monstercat = 1
-noise_reduction = 70
+noise_reduction = 77
+integral = 70
+gravity = 100
+ignore = 0
 "#
     );
     std::fs::write(&path, cfg).context("write cava config")?;

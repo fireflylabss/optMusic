@@ -8,9 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ### Changed
 
-- Cava: removed the tiny status-row cava viz; live spectrum is a **2-row strip under the shortcut footer** (slightly larger, content-width).
-- Help (`?` / `h`): regrouped into minimal sections — play · seek · sound · more.
-- Pause glyph remains `⏸`; richer click targets from 0.2.1 kept.
+- Status row: removed the decorative `eq_bars` viz after play/pause; live spectrum stays under the shortcut footer only.
+- Cava strip: smoother 2-row spectrum (better glyphs, continuous sampling, softer greys).
+- Help (`?` / `h`): opens as a **right sidebar** that shifts the player aside (play · seek · sound · more).
+- Volume: visible `−` / `+` next to the level — clickable; click the percentage still mutes.
+- Rust edition **2024** (MSRV **1.85**).
 
 ### Notes
 

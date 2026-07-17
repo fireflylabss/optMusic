@@ -284,7 +284,7 @@ fn run_session(
         };
         ui.draw(&frame)?;
 
-        // ~60 fps keeps progress + eq viz smooth.
+        // ~60 fps keeps progress + cava strip smooth.
         if event::poll(Duration::from_millis(16)).unwrap_or(false) {
             loop {
                 match event::read() {
@@ -456,6 +456,14 @@ fn run_session(
                             HitTarget::Volume => {
                                 let muted = player.toggle_mute();
                                 ui.toast(if muted { "muted" } else { "unmuted" });
+                            }
+                            HitTarget::VolumeUp => {
+                                let v = player.volume_step_up();
+                                ui.toast(format!("volume {v}%"));
+                            }
+                            HitTarget::VolumeDown => {
+                                let v = player.volume_step_down();
+                                ui.toast(format!("volume {v}%"));
                             }
                             HitTarget::Eq => {
                                 let eq = player.cycle_eq();

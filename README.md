@@ -7,10 +7,12 @@ Powered by **MPV** (`libmpv`), with an optional discreet **cava** spectrum strip
 ♪  optMusic
    track title
    ───●────────
-   ◂ ⏸ paused ▸
+   ◂ ⏸ paused ▸  ·  1/12  ·  − 80% +
    space · n/p · ←→ · ?
    ▁▂▃▄▅▂▁·˙▁▂▃   ← cava under shortcuts (opt-in)
 ```
+
+Help (`?` / `h`) opens a **right sidebar** and shifts the player left.
 
 ## Install
 
@@ -96,8 +98,8 @@ msc version
 | `r` | shuffle |
 | `v` | toggle cava strip |
 | `s` | stop |
-| `h` / `?` | toggle keymap |
-| `q` / Esc | quit (or close keymap) |
+| `h` / `?` | toggle help sidebar |
+| `q` / Esc | quit (or close help) |
 
 ### Mouse
 
@@ -106,7 +108,8 @@ msc version
 | click / drag progress | seek / scrub |
 | `◂` / `▸` | previous / next |
 | `▶` / `⏸` / status | pause / resume |
-| volume | mute |
+| `−` / `+` | volume down / up |
+| volume % | mute |
 | `spd` / `ptch` / `eq` | nudge speed / pitch / cycle EQ |
 | cava strip | toggle cava |
 | playlist row | jump to track |
@@ -114,11 +117,11 @@ msc version
 
 ## Cava strip
 
-Off by default. With `--cava` or `v`, and `cava` installed, optMusic draws a **2-row spectrum strip under the shortcut footer** (content width). Soft greys only — no mini-viz in the status row.
+Off by default. With `--cava` or `v`, and `cava` installed, optMusic draws a **2-row spectrum strip under the shortcut footer** (content width, soft greys). No decorative viz in the status row.
 
 - PipeWire first, Pulse fallback
 - Click the strip or press `v` to toggle
-- Missing cava → decorative status bars only; playback unaffected
+- Missing cava → strip unavailable; playback unaffected
 
 ## Features
 
@@ -133,7 +136,7 @@ Off by default. With `--cava` or `v`, and `cava` installed, optMusic draws a **2
 
 ## Requirements
 
-- Rust 1.70+
+- Rust **1.85+** (edition 2024)
 - **libmpv** (see Install)
 - System audio (PipeWire / PulseAudio / ALSA)
 - Optional: **cava** for the spectrum strip
