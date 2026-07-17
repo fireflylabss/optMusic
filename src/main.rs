@@ -294,6 +294,10 @@ fn run_session(
                                 Action::None => {}
                                 Action::List => ui.toggle_list(),
                                 Action::Help => ui.toggle_help(),
+                                Action::TogglePath => {
+                                    let on = ui.toggle_path();
+                                    ui.toast(if on { "filename on" } else { "filename off" });
+                                }
                                 Action::Quit => {
                                     if ui.show_help() {
                                         ui.toggle_help();
@@ -542,6 +546,7 @@ enum Action {
     Stop,
     PlayPause,
     Help,
+    TogglePath,
     Jump(usize),
     VolChanged(u8),
     Muted(bool),
@@ -617,6 +622,7 @@ fn handle_key(key: KeyEvent, player: &mut Player) -> Action {
         }
         KeyCode::Char('l') => Action::List,
         KeyCode::Char('r') => Action::Shuffle,
+        KeyCode::Char('f') => Action::TogglePath,
         KeyCode::Char('v') => Action::CavaToggle,
         KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
         KeyCode::Char('h') | KeyCode::Char('?') => Action::Help,

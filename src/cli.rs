@@ -18,8 +18,8 @@ use clap::{Parser, Subcommand};
                   Keys during playback (h for full list):\n  \
                   space  pause     n/p  next/prev     ←→  ±5s     {}  ±60s\n  \
                   +/-    volume    m    mute          e   eq      []  speed\n  \
-                  ,.     pitch     0    reset         l   list    v   cava\n  \
-                  q      quit\n\n\
+                  ,.     pitch     0    reset         l   list    f   filename\n  \
+                  v      cava      q    quit\n\n\
                   Cava: off by default; enable with --cava or toggle with v (needs `cava` on PATH).\n\n\
                   Examples:\n  \
                   msc play song.mp3\n  \

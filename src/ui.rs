@@ -143,6 +143,8 @@ pub struct SessionUi {
     toast: Option<(String, Instant)>,
     show_list: bool,
     show_help: bool,
+    /// Path line under the track title (session-persistent; `f` toggles).
+    show_path: bool,
     /// When true, Drop skips terminal restore (after explicit leave()).
     detached: bool,
     /// Global clock for ambient motion.
@@ -177,6 +179,7 @@ impl SessionUi {
             toast: None,
             show_list: false,
             show_help: false,
+            show_path: true,
             detached: false,
             t0: now,
             track_key: String::new(),
@@ -226,6 +229,12 @@ impl SessionUi {
         if self.show_help {
             self.show_list = false;
         }
+    }
+
+    /// Toggle the filename/path line. Returns `true` when shown.
+    pub fn toggle_path(&mut self) -> bool {
+        self.show_path = !self.show_path;
+        self.show_path
     }
 
     /// Toggle cava background (no-op toast if binary missing).
@@ -395,7 +404,11 @@ impl SessionUi {
         };
 
         let title = truncate(state.track_name, max_title);
-        let path = truncate(state.track_path, max_title);
+        let path = if self.show_path {
+            truncate(state.track_path, max_title)
+        } else {
+            String::new()
+        };
 
         let bar_w = block_w.saturating_sub(14).clamp(12, 36);
         let (filled, knob, empty) = progress_parts(state.pos, state.duration, bar_w);
@@ -447,6 +460,9 @@ impl SessionUi {
         let cava_rows = if show_cava_strip { 2usize } else { 0 };
 
         let mut block_h = 8usize;
+        if !self.show_path {
+            block_h = block_h.saturating_sub(1);
+        }
         if toast.is_some() {
             block_h += 1;
         }
@@ -492,15 +508,19 @@ impl SessionUi {
         )?;
         y += 1;
 
-        let path_c = mix(DIM, DARK, 1.0 - intro * 0.85);
-        paint_in_region(
-            &mut out,
-            y as u16,
-            content_x0,
-            content_cols,
-            &[Span::fg(path_c, &path)],
-        )?;
-        y += 2; // gap before progress
+        if self.show_path {
+            let path_c = mix(DIM, DARK, 1.0 - intro * 0.85);
+            paint_in_region(
+                &mut out,
+                y as u16,
+                content_x0,
+                content_cols,
+                &[Span::fg(path_c, &path)],
+            )?;
+            y += 2; // gap before progress
+        } else {
+            y += 1; // compact gap when path hidden
+        }
 
         let knob_c = if playing {
             gray(lerp(190.0, 255.0, breath(t, 2.0)))
@@ -789,7 +809,13 @@ const HELP_SECTIONS: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         "more",
-        &[("v", "cava"), ("click", "ui"), ("?", "help"), ("q", "quit")],
+        &[
+            ("f", "filename"),
+            ("v", "cava"),
+            ("click", "ui"),
+            ("?", "help"),
+            ("q", "quit"),
+        ],
     ),
 ];
 

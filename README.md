@@ -96,6 +96,7 @@ msc version
 | `1`–`9` | jump to track N |
 | `l` | toggle playlist |
 | `r` | shuffle |
+| `f` | toggle filename / path line |
 | `v` | toggle cava strip |
 | `s` | stop |
 | `h` / `?` | toggle help sidebar |

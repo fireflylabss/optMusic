@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use libmpv2::events::Event as MpvEvent;
+use libmpv2::mpv_end_file_reason;
 use libmpv2::Mpv;
 
 use crate::eq::EqPreset;
@@ -151,6 +152,8 @@ impl Player {
         self.mpv
             .command("loadfile", &[path_str, "replace"])
             .map_err(|e| anyhow::anyhow!("cannot load {}: {e:?}", path.display()))?;
+        // Drop EndFile(Stop) from the replace so next/prev aren't treated as eof.
+        self.drain_events();
 
         let _ = self.mpv.set_property("pause", false);
         let _ = self.mpv.set_property("volume", self.volume as f64);
@@ -269,8 +272,11 @@ impl Player {
     fn poll_events(&mut self) {
         while let Some(ev) = self.mpv.wait_event(0.0) {
             match ev {
-                Ok(MpvEvent::EndFile(_)) => {
-                    if !self.stopped {
+                // Only natural EOF advances the playlist. `Stop` fires on
+                // loadfile-replace / stop and must not look like track end
+                // (that was breaking n/p and ◂/▸).
+                Ok(MpvEvent::EndFile(reason)) => {
+                    if !self.stopped && reason == mpv_end_file_reason::Eof {
                         self.finished = true;
                     }
                 }
