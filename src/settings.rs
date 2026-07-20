@@ -8,7 +8,7 @@ use crossterm::{
     style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
 };
 
-use crate::config::{Accent, AppConfig};
+use crate::config::{Accent, AppConfig, DlUiMode};
 use crate::ui::{DARK, DIM, GRAY};
 
 pub const SETTINGS_SIDEBAR_W: usize = 30;
@@ -101,7 +101,7 @@ impl SettingsUi {
 
     fn len(&self) -> usize {
         match self.screen {
-            SettingsScreen::Main => 5,
+            SettingsScreen::Main => 6,
             SettingsScreen::Cava => 3,
         }
     }
@@ -109,7 +109,11 @@ impl SettingsUi {
     fn move_cursor(&mut self, dir: i32) {
         let n = self.len().max(1);
         if dir < 0 {
-            self.cursor = if self.cursor == 0 { n - 1 } else { self.cursor - 1 };
+            self.cursor = if self.cursor == 0 {
+                n - 1
+            } else {
+                self.cursor - 1
+            };
         } else {
             self.cursor = (self.cursor + 1) % n;
         }
@@ -200,11 +204,7 @@ impl SettingsUi {
     }
 
     pub fn pointer_over_pane(&self, col: u16, row: u16) -> bool {
-        self.open
-            && self
-                .pane
-                .map(|r| r.contains(col, row))
-                .unwrap_or(false)
+        self.open && self.pane.map(|r| r.contains(col, row)).unwrap_or(false)
     }
 
     fn activate(&mut self, cfg: &mut AppConfig) -> SettingsAction {
@@ -231,15 +231,7 @@ impl SettingsUi {
                 2 => {
                     cfg.ldm = !cfg.ldm;
                     let _ = cfg.save();
-                    applied(
-                        if cfg.ldm {
-                            "ldm · on"
-                        } else {
-                            "ldm · off"
-                        },
-                        false,
-                        false,
-                    )
+                    applied(if cfg.ldm { "ldm · on" } else { "ldm · off" }, false, false)
                 }
                 3 => {
                     cfg.accent = cfg.accent.next_preset();
@@ -247,6 +239,11 @@ impl SettingsUi {
                     applied(format!("accent · {}", cfg.accent.label()), false, false)
                 }
                 4 => {
+                    cfg.dl_ui = cfg.dl_ui.next();
+                    let _ = cfg.save();
+                    applied(format!("dl ui · {}", cfg.dl_ui.label()), false, false)
+                }
+                5 => {
                     cfg.reset_all();
                     let _ = cfg.save();
                     applied("settings · reset defaults", true, true)
@@ -257,7 +254,11 @@ impl SettingsUi {
                 0 => {
                     cfg.cava.style = cfg.cava.style.next();
                     let _ = cfg.save();
-                    applied(format!("cava style · {}", cfg.cava.style.label()), false, true)
+                    applied(
+                        format!("cava style · {}", cfg.cava.style.label()),
+                        false,
+                        true,
+                    )
                 }
                 1 => {
                     cfg.cava.cycle_rows_up();
@@ -285,6 +286,15 @@ impl SettingsUi {
                 let _ = cfg.save();
                 applied(format!("accent · {}", cfg.accent.label()), false, false)
             }
+            SettingsScreen::Main if self.cursor == 4 => {
+                cfg.dl_ui = if dir < 0 {
+                    cfg.dl_ui.prev()
+                } else {
+                    cfg.dl_ui.next()
+                };
+                let _ = cfg.save();
+                applied(format!("dl ui · {}", cfg.dl_ui.label()), false, false)
+            }
             SettingsScreen::Main if self.cursor == 0 || self.cursor == 2 => self.activate(cfg),
             SettingsScreen::Main if self.cursor == 1 && dir > 0 => {
                 self.screen = SettingsScreen::Cava;
@@ -298,7 +308,11 @@ impl SettingsUi {
                     cfg.cava.style.next()
                 };
                 let _ = cfg.save();
-                applied(format!("cava style · {}", cfg.cava.style.label()), false, true)
+                applied(
+                    format!("cava style · {}", cfg.cava.style.label()),
+                    false,
+                    true,
+                )
             }
             SettingsScreen::Cava if self.cursor == 1 => {
                 if dir < 0 {
@@ -337,6 +351,11 @@ impl SettingsUi {
                     applied("accent · default", false, false)
                 }
                 4 => {
+                    cfg.dl_ui = DlUiMode::Arrows;
+                    let _ = cfg.save();
+                    applied("dl ui · arrows", false, false)
+                }
+                5 => {
                     cfg.reset_all();
                     let _ = cfg.save();
                     applied("settings · reset defaults", true, true)
@@ -432,7 +451,8 @@ pub fn paint_settings_sidebar(
             (1, "Cava", "open ›".into()),
             (2, "LDM", on_off(cfg.ldm).into()),
             (3, "Accent", cfg.accent.label()),
-            (4, "Reset all", "defaults".into()),
+            (4, "Dl UI", cfg.dl_ui.label().into()),
+            (5, "Reset all", "defaults".into()),
         ],
         SettingsScreen::Cava => vec![
             (0, "Style", cfg.cava.style.label().into()),
@@ -497,7 +517,11 @@ pub fn paint_settings_sidebar(
             " live {} · ldm {} · {}",
             cfg.accent.label(),
             on_off(cfg.ldm),
-            if cfg.excess_volume { "vol≤200" } else { "vol≤100" }
+            if cfg.excess_volume {
+                "vol≤200"
+            } else {
+                "vol≤100"
+            }
         );
         paint_panel_line(
             out,
@@ -521,17 +545,7 @@ pub fn paint_settings_sidebar(
             SettingsScreen::Cava => "↑↓ focus  ←→ set  esc",
         };
         paint_panel_line(
-            out,
-            text_x,
-            y,
-            inner_w,
-            panel_bg,
-            DIM,
-            hint,
-            "",
-            false,
-            focus_bg,
-            focus_fg,
+            out, text_x, y, inner_w, panel_bg, DIM, hint, "", false, focus_bg, focus_fg,
         )?;
         ui.hits.push(RowHit {
             x: 0,
@@ -566,7 +580,9 @@ fn paint_panel_line(
         truncate_fit(value, 10)
     };
     let used = left.chars().count() + right.chars().count();
-    let gap_n = inner_w.saturating_sub(used).max(if right.is_empty() { 0 } else { 1 });
+    let gap_n = inner_w
+        .saturating_sub(used)
+        .max(if right.is_empty() { 0 } else { 1 });
     let gap = " ".repeat(gap_n);
     let mut line = format!("{left}{gap}{right}");
     while line.chars().count() < inner_w {
@@ -589,11 +605,7 @@ fn paint_panel_line(
 }
 
 fn on_off(v: bool) -> &'static str {
-    if v {
-        "ON"
-    } else {
-        "OFF"
-    }
+    if v { "ON" } else { "OFF" }
 }
 
 fn truncate_fit(s: &str, max: usize) -> String {

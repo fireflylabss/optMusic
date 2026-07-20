@@ -4,7 +4,45 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.6] - 2026-07-17
+## [CLI 0.2.7] - 2026-07-19
+
+### Added
+
+- **`download`** / **`dl`** / **`d`** — interactive yt-dlp downloader for **YouTube**, **YouTube Music**, and **SoundCloud**.
+  - Wizard flow: **provider → search/URL(s) → select → preset → options → download**
+  - URLs: paste one or many (`url1;url2`); asks audio vs video when the platform supports it (audio-only platforms skip straight to audio)
+  - Search: 8 results per page with next/prev, multi-select, cached under `~/option/music/cache/dl/` (auto-purged every **3 days**)
+  - Presets after selection: **best** · **economy** · **lower** · **custom**
+  - Options: quality, filetype/container, embed thumbnail + music metadata, subtitles (scan → default **embed** when available; also separate / both / none)
+  - Multi-select / multi-URL batch: only options common to **all** selected items (capability intersection)
+  - Output defaults to the **current directory** (opt-in other dir); `-o` still works for direct mode
+  - Direct mode: `msc dl URL --audio`, `msc download -p soundcloud "query" -a`
+  - Wizard UI modes: **`arrows`** (default — ↑↓ / checkboxes) and **`type`** (typed prompts); set via `msc dl --ui arrows|type`, settings **`c` → Dl UI**, or `dl_ui` in `~/option/music/config.toml`
+  - Download kinds: **audio only** · **video only** · **both** (separate files); each format choice is its own selection screen (no left/right cycling)
+  - Embeds: full metadata pack, cover thumbnail inside the file, subtitles embedded into video (no loose `.srt` option)
+  - Subtitles limited to **en/pt/es** (+ skip translated auto-subs) with `--ignore-errors` so a 429 can’t kill the video download
+  - After selecting **exactly one** item: optional **audio preview** — quiet fetch (spinner only, no remux) into a slim player without list/settings (`q` returns to the download wizard)
+  - Higher-contrast greyscale arrow UI (inverted focus row + clearer copy)
+- Requires system **yt-dlp** (and **ffmpeg** for extract / embed).
+
+## [Desktop 0.1.0] - 2026-07-19
+
+### Added
+
+- First desktop release built with React, TypeScript, Vite, Bun and Tauri 2.
+- A shared Rust `CoreController` drives the desktop and uses the existing `libmpv` player rather than WebView audio.
+- Tauri commands and live `optmusic://state` snapshots for scanning, playback, seeking, queue operations, favorites, volume and EQ.
+- Automatic scan of `~/Music`, plus picker-based additional library folders persisted in `~/option/music/config.toml`.
+- Library search, favorites, queue add/remove/play-next actions, contextual file-manager reveal and desktop settings.
+- Desktop playback controls for play/pause, previous/next, seek, volume and EQ presets.
+
+### Changed
+
+- The desktop app is now started with `bun run tauri:dev`; browser-only preview clearly states that playback and library access require Tauri.
+- Playback, library state, queue and preferences now come from the Rust core; the frontend contains presentation state only.
+- Local paths are validated by the core before revealing them in the file manager.
+
+## [CLI 0.2.6] - 2026-07-17
 
 ### Added
 
@@ -25,7 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - Settings popup (`c`) redraws immediately when navigating or toggling by keyboard / mouse.
 
-## [0.2.5] - 2026-07-17
+## [CLI 0.2.5] - 2026-07-17
 
 ### Added
 
@@ -40,7 +78,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Status row shows current `loop` mode.
 - Filename / path line is **off by default** (`f` still toggles it on).
 
-## [0.2.4] - 2026-07-17
+## [CLI 0.2.4] - 2026-07-17
 
 ### Changed
 
@@ -52,7 +90,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - Available on the **AUR** as [`optmusic`](https://aur.archlinux.org/packages/optmusic).
 
-## [0.2.3] - 2026-07-17
+## [CLI 0.2.3] - 2026-07-17
 
 ### Added
 
@@ -69,7 +107,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 - **`n` / `p` and ◂ / ▸** — `loadfile replace` emits `EndFile(Stop)`, which was treated as natural EOF and auto-advanced (undoing prev, double-skipping next). Only `EndFile(Eof)` advances the playlist now.
 
-## [0.2.2] - 2026-07-17
+## [CLI 0.2.2] - 2026-07-17
 
 ### Changed
 
@@ -85,7 +123,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
-## [0.2.1] - 2026-07-17
+## [CLI 0.2.1] - 2026-07-17
 
 ### Added
 
@@ -107,7 +145,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
-## [0.2.0] - 2026-07-17
+## [CLI 0.2.0] - 2026-07-17
 
 ### Added
 
@@ -139,7 +177,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 
 
-## [0.1.0] - 2026-07-17
+## [CLI 0.1.0] - 2026-07-17
 
 
 

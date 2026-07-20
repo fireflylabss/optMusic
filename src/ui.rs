@@ -9,8 +9,8 @@ use crossterm::{
     execute, queue,
     style::{Color, Print, ResetColor, SetForegroundColor, Stylize},
     terminal::{
-        disable_raw_mode, enable_raw_mode, size, BeginSynchronizedUpdate, Clear, ClearType,
-        EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+        BeginSynchronizedUpdate, Clear, ClearType, EndSynchronizedUpdate, EnterAlternateScreen,
+        LeaveAlternateScreen, disable_raw_mode, enable_raw_mode, size,
     },
 };
 
@@ -184,10 +184,21 @@ pub struct SessionUi {
     /// Persistent settings (`~/option/music/config.toml`).
     config: AppConfig,
     settings: SettingsUi,
+    /// Slim download-preview session: no list/settings sidebars.
+    preview: bool,
 }
 
 impl SessionUi {
     pub fn enter(enable_cava: bool) -> io::Result<Self> {
+        Self::enter_inner(enable_cava, false)
+    }
+
+    /// Lightweight player for `msc dl` audio preview (no `c` / `l`).
+    pub fn enter_preview() -> io::Result<Self> {
+        Self::enter_inner(false, true)
+    }
+
+    fn enter_inner(enable_cava: bool, preview: bool) -> io::Result<Self> {
         enable_raw_mode()?;
         let mut out = io::stdout();
         execute!(
@@ -199,7 +210,7 @@ impl SessionUi {
         )?;
         let now = Instant::now();
         let config = AppConfig::load();
-        let cava = if enable_cava {
+        let cava = if enable_cava && !preview {
             CavaBridge::try_start()
         } else {
             None
@@ -221,6 +232,7 @@ impl SessionUi {
             cava,
             config,
             settings: SettingsUi::default(),
+            preview,
         })
     }
 
@@ -241,11 +253,18 @@ impl SessionUi {
     }
 
     pub fn toggle_settings(&mut self) {
+        if self.preview {
+            return;
+        }
         self.settings.toggle();
     }
 
     pub fn close_settings(&mut self) {
         self.settings.close();
+    }
+
+    pub fn is_preview(&self) -> bool {
+        self.preview
     }
 
     /// Handle a key while the settings bar is open.
@@ -291,6 +310,9 @@ impl SessionUi {
     }
 
     pub fn toggle_list(&mut self) {
+        if self.preview {
+            return;
+        }
         self.show_list = !self.show_list;
         if self.show_list {
             self.list_follow = 0; // recenter on open
@@ -519,7 +541,12 @@ impl SessionUi {
 
         // Absolute redraw inside alternate screen — never touches scrollback.
         // Synchronized update avoids tear/flicker (esp. with help sidebar).
-        queue!(out, BeginSynchronizedUpdate, Clear(ClearType::All), MoveTo(0, 0))?;
+        queue!(
+            out,
+            BeginSynchronizedUpdate,
+            Clear(ClearType::All),
+            MoveTo(0, 0)
+        )?;
 
         let t = self.t0.elapsed().as_secs_f64();
         let playing = !state.paused && !state.stopped;
@@ -544,7 +571,10 @@ impl SessionUi {
         } else {
             0
         };
-        let settings_open = self.settings.is_open();
+        let settings_open = !self.preview && self.settings.is_open();
+        if self.preview {
+            self.show_list = false;
+        }
 
         // The list takes real layout space instead of floating over the player.
         // Keep enough room for the compact player on narrow terminals.
@@ -600,7 +630,9 @@ impl SessionUi {
 
         // Playlist sidebar — visible row count comes from the terminal height.
         if self.show_list {
-            self.list_visible = rows.saturating_sub(LIST_SIDEBAR_HEADER + LIST_SIDEBAR_FOOTER).max(1);
+            self.list_visible = rows
+                .saturating_sub(LIST_SIDEBAR_HEADER + LIST_SIDEBAR_FOOTER)
+                .max(1);
             self.list_total = state.list_names.len();
             self.follow_list_track(state.index);
             let max = self.list_scroll_max();
@@ -735,13 +767,8 @@ impl SessionUi {
             Span::fg(DARK, " "),
             Span::fg(DIM, vol_plus),
         ];
-        let status_x = paint_in_region(
-            &mut out,
-            y as u16,
-            content_x0,
-            content_cols,
-            &status_spans,
-        )?;
+        let status_x =
+            paint_in_region(&mut out, y as u16, content_x0, content_cols, &status_spans)?;
         let mut cx = status_x;
         self.hits.prev = Some(HitRect {
             x: cx,
@@ -805,13 +832,7 @@ impl SessionUi {
             Span::fg(DIM, "loop "),
             Span::fg(GRAY, loop_l),
         ];
-        let meta_x = paint_in_region(
-            &mut out,
-            y as u16,
-            content_x0,
-            content_cols,
-            &meta_spans,
-        )?;
+        let meta_x = paint_in_region(&mut out, y as u16, content_x0, content_cols, &meta_spans)?;
         let mut mx = meta_x;
         self.hits.speed = Some(HitRect {
             x: mx,
@@ -846,6 +867,7 @@ impl SessionUi {
             content_cols,
             footer_key,
             footer_dim,
+            self.preview,
         )?;
         y += 1;
 
@@ -861,7 +883,9 @@ impl SessionUi {
                 } else {
                     0.14
                 };
-                let strip_w = block_w.saturating_add(4).min(content_cols.saturating_sub(4));
+                let strip_w = block_w
+                    .saturating_add(4)
+                    .min(content_cols.saturating_sub(4));
                 let cava_color = if self.config.accent == Accent::Default {
                     mix(CAVA_DIM, CAVA_SOFT, intensity * 0.95)
                 } else {
@@ -918,7 +942,7 @@ impl SessionUi {
         }
 
         if help_w > 0 {
-            paint_help_sidebar(&mut out, cols, rows, help_w, accent)?;
+            paint_help_sidebar(&mut out, cols, rows, help_w, accent, self.preview)?;
         }
 
         // Floating toast — top-right, tucked left of help overlay when open.
@@ -946,10 +970,7 @@ const HELP_SECTIONS: &[(&str, &[(&str, &str)])] = &[
             ("o", "loop cycle"),
         ],
     ),
-    (
-        "seek",
-        &[("← →", "±5s"), ("{ }", "±60s"), ("1–9", "jump")],
-    ),
+    ("seek", &[("← →", "±5s"), ("{ }", "±60s"), ("1–9", "jump")]),
     (
         "sound",
         &[
@@ -974,6 +995,25 @@ const HELP_SECTIONS: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
+/// Preview session help — no list / settings.
+const HELP_SECTIONS_PREVIEW: &[(&str, &[(&str, &str)])] = &[
+    (
+        "play",
+        &[("space", "pause"), ("s", "stop"), ("q", "back to download")],
+    ),
+    ("seek", &[("← →", "±5s"), ("{ }", "±60s")]),
+    (
+        "sound",
+        &[
+            ("+ −", "volume"),
+            ("m", "mute"),
+            ("e", "eq"),
+            ("[ ]", "speed"),
+        ],
+    ),
+    ("more", &[("?", "help")]),
+];
+
 /// Right help sidebar width when fully open.
 const HELP_SIDEBAR_W: usize = 26;
 /// Width of the compact playlist sidebar.
@@ -981,9 +1021,14 @@ const LIST_SIDEBAR_W: usize = 30;
 const LIST_SIDEBAR_HEADER: usize = 3;
 const LIST_SIDEBAR_FOOTER: usize = 2;
 
-fn help_sidebar_height() -> usize {
+fn help_sidebar_height(preview: bool) -> usize {
+    let sections = if preview {
+        HELP_SECTIONS_PREVIEW
+    } else {
+        HELP_SECTIONS
+    };
     let mut n = 1; // top pad
-    for (i, (_title, rows)) in HELP_SECTIONS.iter().enumerate() {
+    for (i, (_title, rows)) in sections.iter().enumerate() {
         if i > 0 {
             n += 1; // blank between sections
         }
@@ -998,11 +1043,17 @@ fn paint_help_sidebar(
     rows: usize,
     sidebar_w: usize,
     accent: Color,
+    preview: bool,
 ) -> io::Result<()> {
+    let sections = if preview {
+        HELP_SECTIONS_PREVIEW
+    } else {
+        HELP_SECTIONS
+    };
     let x0 = cols.saturating_sub(sidebar_w);
     let rule_x = x0;
     let inner_w = sidebar_w.saturating_sub(3).max(8);
-    let h = help_sidebar_height().min(rows.saturating_sub(2));
+    let h = help_sidebar_height(preview).min(rows.saturating_sub(2));
     let mut y = rows.saturating_sub(h) / 2;
     if y < 1 {
         y = 1;
@@ -1021,7 +1072,7 @@ fn paint_help_sidebar(
 
     let text_x = x0 + 2;
 
-    for (si, (title, rows_sec)) in HELP_SECTIONS.iter().enumerate() {
+    for (si, (title, rows_sec)) in sections.iter().enumerate() {
         if si > 0 {
             y += 1;
         }
@@ -1076,7 +1127,9 @@ fn paint_list_sidebar(
     let list_h = rows.saturating_sub(1);
     let track_x = sidebar_w.saturating_sub(2) as u16;
     let track_y = LIST_SIDEBAR_HEADER as u16;
-    let track_h = list_h.saturating_sub(LIST_SIDEBAR_HEADER + LIST_SIDEBAR_FOOTER).max(1) as u16;
+    let track_h = list_h
+        .saturating_sub(LIST_SIDEBAR_HEADER + LIST_SIDEBAR_FOOTER)
+        .max(1) as u16;
 
     hits.list.clear();
     hits.list_bar = None;
@@ -1093,7 +1146,12 @@ fn paint_list_sidebar(
 
     // A quiet divider keeps the sidebar distinct without making it a panel.
     for row in 0..list_h {
-        paint_at(out, track_x.saturating_sub(1), row as u16, &[Span::fg(DARK, "│")])?;
+        paint_at(
+            out,
+            track_x.saturating_sub(1),
+            row as u16,
+            &[Span::fg(DARK, "│")],
+        )?;
     }
 
     let total = names.len();
@@ -1137,7 +1195,12 @@ fn paint_list_sidebar(
         }
     }
 
-    paint_at(out, 1, rows.saturating_sub(1) as u16, &[Span::fg(DARK, "l  close")])?;
+    paint_at(
+        out,
+        1,
+        rows.saturating_sub(1) as u16,
+        &[Span::fg(DARK, "l  close")],
+    )?;
 
     // Vertical scrollbar. Its entire two-column hit area is intentionally generous.
     hits.list_bar = Some(HitRect {
@@ -1150,7 +1213,9 @@ fn paint_list_sidebar(
     let thumb_h = if total <= vis || total == 0 {
         track_h
     } else {
-        ((vis as f64 / total as f64) * track_h as f64).round().clamp(1.0, track_h as f64) as u16
+        ((vis as f64 / total as f64) * track_h as f64)
+            .round()
+            .clamp(1.0, track_h as f64) as u16
     };
     let thumb_max = track_h.saturating_sub(thumb_h);
     let thumb_y = if max_scroll == 0 {
@@ -1159,7 +1224,11 @@ fn paint_list_sidebar(
         ((scroll as f64 / max_scroll as f64) * thumb_max as f64).round() as u16
     };
     for i in 0..track_h {
-        let c = if i >= thumb_y && i < thumb_y + thumb_h { GRAY } else { DARK };
+        let c = if i >= thumb_y && i < thumb_y + thumb_h {
+            GRAY
+        } else {
+            DARK
+        };
         paint_at(out, track_x, track_y + i, &[Span::fg(c, "┃")])?;
     }
 
@@ -1174,8 +1243,13 @@ fn paint_key_footer(
     region_w: usize,
     key_c: Color,
     gap_c: Color,
+    preview: bool,
 ) -> io::Result<()> {
-    let chips: &[&str] = &["space", "n/p", "←→", "+/−", "v", "c", "?"];
+    let chips: &[&str] = if preview {
+        &["space", "←→", "+/−", "?", "q"]
+    } else {
+        &["space", "n/p", "←→", "+/−", "v", "c", "?"]
+    };
     let mut spans: Vec<Span<'_>> = Vec::with_capacity(chips.len() * 2);
     for (i, key) in chips.iter().enumerate() {
         if i > 0 {
@@ -1332,7 +1406,13 @@ fn paint_cava_bars(
 
     let mut x0 = (region_x + region_w / 2) as u16;
     for (i, line) in lines.iter().enumerate() {
-        let x = paint_in_region(out, y + i as u16, region_x, region_w, &[Span::fg(color, line)])?;
+        let x = paint_in_region(
+            out,
+            y + i as u16,
+            region_x,
+            region_w,
+            &[Span::fg(color, line)],
+        )?;
         if i == 0 {
             x0 = x;
         }
@@ -1485,11 +1565,7 @@ pub fn bin_name() -> String {
 
 pub fn banner() {
     println!();
-    println!(
-        "  {} {}",
-        "♪".with(BRIGHT),
-        APP_NAME.with(BRIGHT).bold()
-    );
+    println!("  {} {}", "♪".with(BRIGHT), APP_NAME.with(BRIGHT).bold());
     println!();
 }
 
@@ -1518,7 +1594,11 @@ pub fn fmt_time(d: Duration) -> String {
 }
 
 /// Thin progress parts: filled ─── + ● + empty ───
-fn progress_parts(pos: Duration, total: Option<Duration>, width: usize) -> (String, String, String) {
+fn progress_parts(
+    pos: Duration,
+    total: Option<Duration>,
+    width: usize,
+) -> (String, String, String) {
     let width = width.max(8);
     let ratio = match total {
         Some(t) if t.as_secs_f64() > 0.0 => (pos.as_secs_f64() / t.as_secs_f64()).clamp(0.0, 1.0),
@@ -1576,6 +1656,9 @@ mod tests {
     #[test]
     fn progress_parts_width() {
         let (a, b, c) = progress_parts(Duration::from_secs(5), Some(Duration::from_secs(10)), 20);
-        assert_eq!(a.chars().count() + b.chars().count() + c.chars().count(), 20);
+        assert_eq!(
+            a.chars().count() + b.chars().count() + c.chars().count(),
+            20
+        );
     }
 }

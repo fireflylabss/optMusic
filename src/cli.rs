@@ -2,7 +2,10 @@
 
 use std::path::PathBuf;
 
-use clap::{builder::styling::{AnsiColor, Effects, Styles}, Parser, Subcommand, ValueEnum};
+use clap::{
+    Parser, Subcommand, ValueEnum,
+    builder::styling::{AnsiColor, Effects, Styles},
+};
 
 fn cli_styles() -> Styles {
     Styles::styled()
@@ -13,6 +16,26 @@ fn cli_styles() -> Styles {
         .error(AnsiColor::BrightRed.on_default() | Effects::BOLD)
         .valid(AnsiColor::BrightWhite.on_default())
         .invalid(AnsiColor::BrightRed.on_default())
+}
+
+/// Download wizard UI mode (CLI override).
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CliDlUi {
+    /// Arrow keys, checkboxes, cycling options
+    #[value(name = "arrows", alias = "arrow")]
+    Arrows,
+    /// Classic typed prompts
+    #[value(name = "type", aliases = ["typing", "prompt"])]
+    Type,
+}
+
+impl CliDlUi {
+    pub fn to_mode(self) -> crate::config::DlUiMode {
+        match self {
+            Self::Arrows => crate::config::DlUiMode::Arrows,
+            Self::Type => crate::config::DlUiMode::Type,
+        }
+    }
 }
 
 /// Starting EQ preset (CLI).
@@ -59,6 +82,8 @@ impl CliEq {
   msc song.mp3            bare path also plays\n\
   msc ls ~/Music -r       same as  msc list ~/Music -r\n\
   msc i song.flac         same as  msc info song.flac\n\
+  msc dl                  interactive download wizard\n\
+  msc dl URL --audio      direct download (aliases: download, d)\n\
 \n\
 Playback keys (press ? / h in the player for the full sidebar):\n\
   space        pause / resume          n / p        next / previous\n\
@@ -78,6 +103,10 @@ Examples:\n\
   msc play -m ~/Music --eq bass --pitch 1.05\n\
   msc play album/ --loop-file --cava\n\
   msc ls ~/Music -r\n\
+  msc dl\n\
+  msc dl -i\n\
+  msc dl https://youtu.be/… --audio -o .\n\
+  msc download -p soundcloud \"ambient\" -a\n\
   msc --help",
     styles = cli_styles(),
     propagate_version = true,
@@ -99,11 +128,20 @@ pub struct Cli {
     pub music_dir: String,
 
     /// Enable cava spectrum strip (off by default; requires `cava` on PATH)
-    #[arg(long = "cava", global = true, help = "Enable cava bars (toggle later with v)")]
+    #[arg(
+        long = "cava",
+        global = true,
+        help = "Enable cava bars (toggle later with v)"
+    )]
     pub cava: bool,
 
     /// Suppress the startup banner outside the TUI
-    #[arg(short = 'q', long = "quiet", global = true, help = "Quiet mode (less stdout noise)")]
+    #[arg(
+        short = 'q',
+        long = "quiet",
+        global = true,
+        help = "Quiet mode (less stdout noise)"
+    )]
     pub quiet: bool,
 
     #[command(subcommand)]
@@ -181,6 +219,51 @@ pub enum Command {
         recursive: bool,
     },
 
+    /// Download audio/video via yt-dlp (YouTube, YouTube Music, SoundCloud)
+    #[command(visible_aliases = ["dl", "d"])]
+    Download {
+        /// URL or search query (omit for interactive wizard)
+        #[arg(value_name = "QUERY")]
+        query: Option<String>,
+
+        /// Provider (auto-detected from URL when omitted)
+        #[arg(short = 'p', long = "provider", value_enum, value_name = "NAME")]
+        provider: Option<crate::download::Provider>,
+
+        /// Extract audio only (mp3 by default; needs ffmpeg)
+        #[arg(short = 'a', long = "audio", group = "media_kind")]
+        audio: bool,
+
+        /// Download video (merged mp4)
+        #[arg(long = "video", group = "media_kind")]
+        video: bool,
+
+        /// Download both a video file and a separate audio file
+        #[arg(long = "both", group = "media_kind")]
+        both: bool,
+
+        /// Output directory (default: current directory)
+        #[arg(short = 'o', long = "output", value_name = "DIR")]
+        output: Option<PathBuf>,
+
+        /// Audio container when using --audio
+        #[arg(long = "audio-format", default_value = "mp3", value_name = "FMT")]
+        audio_format: String,
+
+        /// Force the interactive wizard even with a query
+        #[arg(short = 'i', long = "interactive")]
+        interactive: bool,
+
+        /// Download wizard UI (`arrows` default, or `type` for typed prompts)
+        #[arg(
+            long = "ui",
+            value_enum,
+            value_name = "MODE",
+            help = "Wizard UI: arrows (default) or type"
+        )]
+        ui: Option<CliDlUi>,
+    },
+
     /// Print version
     #[command(visible_alias = "ver")]
     Version,
@@ -206,16 +289,7 @@ mod tests {
     #[test]
     fn parses_music_dir_and_crossfade() {
         let cli = Cli::parse_from([
-            "msc",
-            "-m",
-            "/tmp",
-            "play",
-            "-c",
-            "2.5",
-            "-f",
-            "1.25",
-            "-v",
-            "50",
+            "msc", "-m", "/tmp", "play", "-c", "2.5", "-f", "1.25", "-v", "50",
         ]);
         assert_eq!(cli.music_dir, "/tmp");
         match cli.command {
@@ -250,14 +324,7 @@ mod tests {
     #[test]
     fn parses_loop_aliases_and_eq() {
         let cli = Cli::parse_from([
-            "msc",
-            "play",
-            ".",
-            "--repeat",
-            "--eq",
-            "bass",
-            "--pitch",
-            "1.1",
+            "msc", "play", ".", "--repeat", "--eq", "bass", "--pitch", "1.1",
         ]);
         match cli.command {
             Some(Command::Play {
@@ -304,6 +371,97 @@ mod tests {
                 assert_eq!(paths, vec![PathBuf::from("a.mp3")]);
             }
             _ => panic!("expected play via alias pl"),
+        }
+    }
+
+    #[test]
+    fn parses_download_direct() {
+        let cli = Cli::parse_from([
+            "msc",
+            "dl",
+            "https://youtu.be/abc",
+            "--audio",
+            "-o",
+            "/tmp/out",
+            "-p",
+            "youtube",
+        ]);
+        match cli.command {
+            Some(Command::Download {
+                query,
+                provider,
+                audio,
+                video,
+                output,
+                interactive,
+                ..
+            }) => {
+                assert_eq!(query.as_deref(), Some("https://youtu.be/abc"));
+                assert!(matches!(provider, Some(crate::download::Provider::Youtube)));
+                assert!(audio);
+                assert!(!video);
+                assert_eq!(output, Some(PathBuf::from("/tmp/out")));
+                assert!(!interactive);
+            }
+            _ => panic!("expected download"),
+        }
+    }
+
+    #[test]
+    fn parses_download_ui_type() {
+        let cli = Cli::parse_from(["msc", "dl", "--ui", "type", "-i"]);
+        match cli.command {
+            Some(Command::Download {
+                ui,
+                interactive,
+                ..
+            }) => {
+                assert!(interactive);
+                assert!(matches!(ui, Some(CliDlUi::Type)));
+            }
+            _ => panic!("expected download"),
+        }
+    }
+
+    #[test]
+    fn parses_download_interactive_alias() {
+        let cli = Cli::parse_from(["msc", "d", "-i"]);
+        match cli.command {
+            Some(Command::Download {
+                query, interactive, ..
+            }) => {
+                assert!(query.is_none());
+                assert!(interactive);
+            }
+            _ => panic!("expected download via alias d"),
+        }
+    }
+
+    #[test]
+    fn parses_download_soundcloud_search() {
+        let cli = Cli::parse_from([
+            "optmusic",
+            "download",
+            "ambient mix",
+            "-p",
+            "soundcloud",
+            "-a",
+        ]);
+        match cli.command {
+            Some(Command::Download {
+                query,
+                provider,
+                audio,
+                ..
+            }) => {
+                assert_eq!(query.as_deref(), Some("ambient mix"));
+                assert!(matches!(
+                    provider,
+                    Some(crate::download::Provider::Soundcloud)
+                ));
+                assert!(audio);
+            }
+            _ => panic!("expected download"),
         }
     }
 }

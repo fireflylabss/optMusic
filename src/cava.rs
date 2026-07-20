@@ -46,10 +46,7 @@ impl CavaBridge {
             .spawn()
             .with_context(|| format!("failed to spawn cava ({input_method})"))?;
 
-        let stdout = child
-            .stdout
-            .take()
-            .context("cava stdout missing")?;
+        let stdout = child.stdout.take().context("cava stdout missing")?;
 
         // Bail early if cava dies immediately (bad input method / missing server).
         thread::sleep(Duration::from_millis(80));

@@ -46,6 +46,7 @@ export CARGO_TARGET_DIR="$(pwd)/target"
 - Config: `~/option/music/config.toml` (settings popup: `c`)
 - Default music dir: `~/Music` (`-m` / `--music-dir`)
 - Optional **cava** spectrum bars (off by default; `--cava` or `v` to enable)
+- Optional **yt-dlp** downloader: `msc dl` wizard (provider → search/URLs → presets/options → cwd); UI `arrows` (default) or `type` via `--ui` / settings `c` / `dl_ui` in config; cache in `~/option/music/cache/dl/`
 
 ## Don’t
 

@@ -1,1 +1,8 @@
 /target
+/node_modules
+/dist
+/.opencode
+/src-tauri/target
+/src-tauri/gen
+*.log
+skills-lock.json

@@ -6,7 +6,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Component, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 /// `~/option/music`
@@ -281,6 +281,44 @@ fn parse_hex(hex: &str) -> Result<(u8, u8, u8), String> {
     Ok((r, g, b))
 }
 
+/// Interactive download wizard UI (`msc dl`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DlUiMode {
+    /// Arrow keys, checkboxes, cycling options (default).
+    #[serde(alias = "arrow")]
+    Arrows,
+    /// Classic typed prompts.
+    #[serde(alias = "typing", alias = "prompt")]
+    Type,
+}
+
+impl Default for DlUiMode {
+    fn default() -> Self {
+        Self::Arrows
+    }
+}
+
+impl DlUiMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Arrows => "arrows",
+            Self::Type => "type",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Arrows => Self::Type,
+            Self::Type => Self::Arrows,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        self.next()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
@@ -290,6 +328,13 @@ pub struct AppConfig {
     pub ldm: bool,
     pub accent: Accent,
     pub cava: CavaConfig,
+    /// Download wizard UI: `arrows` (default) or `type`.
+    #[serde(default)]
+    pub dl_ui: DlUiMode,
+    #[serde(default, rename = "folders")]
+    pub music_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub favorites: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -299,6 +344,9 @@ impl Default for AppConfig {
             ldm: false,
             accent: Accent::Default,
             cava: CavaConfig::default(),
+            dl_ui: DlUiMode::Arrows,
+            music_dirs: Vec::new(),
+            favorites: Vec::new(),
         }
     }
 }
@@ -393,13 +441,23 @@ mod tests {
     #[test]
     fn accent_roundtrip_hex() {
         let a = Accent::parse("#7eb8ff").unwrap();
-        assert_eq!(a, Accent::Custom { r: 0x7e, g: 0xb8, b: 0xff });
+        assert_eq!(
+            a,
+            Accent::Custom {
+                r: 0x7e,
+                g: 0xb8,
+                b: 0xff
+            }
+        );
         assert_eq!(a.label(), "#7eb8ff");
     }
 
     #[test]
     fn cava_rows_normalize() {
-        let mut c = CavaConfig { style: CavaStyle::Bars, rows: 9 };
+        let mut c = CavaConfig {
+            style: CavaStyle::Bars,
+            rows: 9,
+        };
         c.normalize();
         assert_eq!(c.rows, 7);
     }
@@ -410,5 +468,20 @@ mod tests {
         let s = toml::to_string(&cfg).unwrap();
         let back: AppConfig = toml::from_str(&s).unwrap();
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn dl_ui_defaults_to_arrows() {
+        assert_eq!(AppConfig::default().dl_ui, DlUiMode::Arrows);
+        let back: AppConfig = toml::from_str("ldm = false").unwrap();
+        assert_eq!(back.dl_ui, DlUiMode::Arrows);
+    }
+
+    #[test]
+    fn dl_ui_parses_aliases() {
+        let t: AppConfig = toml::from_str("dl_ui = \"type\"").unwrap();
+        assert_eq!(t.dl_ui, DlUiMode::Type);
+        let a: AppConfig = toml::from_str("dl_ui = \"arrow\"").unwrap();
+        assert_eq!(a.dl_ui, DlUiMode::Arrows);
     }
 }

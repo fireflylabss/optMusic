@@ -68,6 +68,8 @@ pub fn create_player(config: &MpvConfig) -> Result<Mpv> {
     let _ = mpv.set_property("input-default-bindings", "no");
     let _ = mpv.set_property("input-vo-keyboard", "no");
     let _ = mpv.set_property("osc", "no");
+    // Stream YouTube / SoundCloud previews through yt-dlp when available.
+    let _ = mpv.set_property("ytdl", "yes");
     let _ = mpv.set_property("volume", config.volume);
     let _ = mpv.set_property("speed", config.speed);
     // Do not keep-open: we advance the playlist ourselves on EndFile / eof.

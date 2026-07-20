@@ -3,16 +3,6 @@
 //! Binaries: `optmusic` and short alias `msc`.
 //! Engine: MPV via libmpv2.
 
-mod cli;
-mod config;
-mod cava;
-mod eq;
-mod mpv;
-mod player;
-mod playlist;
-mod settings;
-mod ui;
-
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -24,14 +14,15 @@ use crossterm::event::{
 };
 use crossterm::style::Stylize;
 
-use cli::{Cli, Command};
-use config::resolve_music_dir;
-use player::Player;
-use playlist::Playlist;
-use settings::SettingsAction;
-use ui::{
-    banner, bin_name, print_info, print_success, print_warn, FrameState, HitTarget, SessionUi,
-    APP_NAME, BRIGHT, DIM, GRAY, WHITE,
+use optmusic::cli::{Cli, Command};
+use optmusic::config::resolve_music_dir;
+use optmusic::download::{self, DownloadRequest, MediaKind};
+use optmusic::player::Player;
+use optmusic::playlist::Playlist;
+use optmusic::settings::SettingsAction;
+use optmusic::ui::{
+    APP_NAME, BRIGHT, DIM, FrameState, GRAY, HitTarget, SessionUi, WHITE, banner, bin_name,
+    print_info, print_success, print_warn,
 };
 
 fn main() {
@@ -50,7 +41,8 @@ fn parse_cli() -> Cli {
     if raw.len() >= 2 {
         let first = raw[1].as_str();
         const CMDS: &[&str] = &[
-            "play", "p", "pl", "info", "i", "list", "ls", "version", "ver", "help",
+            "play", "p", "pl", "info", "i", "list", "ls", "download", "dl", "d", "version", "ver",
+            "help",
         ];
         if !first.starts_with('-') && !CMDS.iter().any(|c| *c == first) {
             let mut rewritten = Vec::with_capacity(raw.len() + 1);
@@ -119,6 +111,33 @@ fn run() -> Result<()> {
             };
             cmd_list(&path, recursive)?
         }
+        Some(Command::Download {
+            query,
+            provider,
+            audio,
+            video,
+            both,
+            output,
+            audio_format,
+            interactive,
+            ui,
+        }) => {
+            if !quiet {
+                banner();
+            }
+            cmd_download(
+                query.as_deref(),
+                provider,
+                audio,
+                video,
+                both,
+                output.as_deref(),
+                &audio_format,
+                interactive,
+                ui.map(|u| u.to_mode()),
+                &cli.music_dir,
+            )?;
+        }
         Some(Command::Version) => {
             println!(
                 "  {} {} {}",
@@ -136,6 +155,7 @@ fn run() -> Result<()> {
             let b = bin.as_str();
             println!("  {} p song.mp3", b.with(BRIGHT));
             println!("  {} play ./music/ -s -l --cava", b.with(BRIGHT));
+            println!("  {} dl", b.with(BRIGHT));
             println!("  {} --help", b.with(DIM));
             println!();
         }
@@ -164,7 +184,7 @@ fn cmd_play(
     volume: u8,
     speed: f64,
     pitch: f64,
-    eq: eq::EqPreset,
+    eq: optmusic::eq::EqPreset,
     crossfade: f64,
     shuffle: bool,
     loop_mode: LoopMode,
@@ -190,13 +210,7 @@ fn cmd_play(
     player.set_loop_track(loop_mode == LoopMode::Track);
 
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
-        run_session(
-            &mut player,
-            &mut playlist,
-            loop_mode,
-            shuffle,
-            enable_cava,
-        )?;
+        run_session(&mut player, &mut playlist, loop_mode, shuffle, enable_cava)?;
     } else {
         if !quiet {
             banner();
@@ -206,11 +220,7 @@ fn cmd_play(
                 if playlist.len() == 1 { "" } else { "s" }
             ));
         }
-        run_plain(
-            &mut player,
-            &mut playlist,
-            loop_mode == LoopMode::Playlist,
-        )?;
+        run_plain(&mut player, &mut playlist, loop_mode == LoopMode::Playlist)?;
     }
 
     Ok(())
@@ -297,17 +307,15 @@ fn run_session(
         }
 
         let list_names: Vec<String> = if ui.list_panel_active() {
-            playlist
-                .tracks()
-                .iter()
-                .map(|t| t.display_name())
-                .collect()
+            playlist.tracks().iter().map(|t| t.display_name()).collect()
         } else {
             Vec::new()
         };
 
         let track = playlist.get(index);
-        let name = track.map(|t| t.display_name()).unwrap_or_else(|| "—".into());
+        let name = track
+            .map(|t| t.display_name())
+            .unwrap_or_else(|| "—".into());
         let path = track
             .map(|t| t.path.display().to_string())
             .unwrap_or_default();
@@ -386,9 +394,7 @@ fn run_session(
                                         ui.list_scroll_by(-1);
                                         continue;
                                     }
-                                    KeyCode::Right
-                                    | KeyCode::Down
-                                    | KeyCode::Char('j') => {
+                                    KeyCode::Right | KeyCode::Down | KeyCode::Char('j') => {
                                         ui.list_scroll_by(1);
                                         continue;
                                     }
@@ -568,154 +574,155 @@ fn run_session(
                             break;
                         }
                         match m.kind {
-                        MouseEventKind::Down(MouseButton::Left) => match ui.hit_target(m.column, m.row)
-                        {
-                            HitTarget::Progress(ratio) => {
-                                held = false;
-                                dragging_progress = true;
-                                dragging_list_scroll = false;
-                                let _ = player.seek_ratio(ratio);
-                            }
-                            HitTarget::ListScroll(ratio) => {
-                                dragging_list_scroll = true;
-                                dragging_progress = false;
-                                ui.list_scroll_ratio(ratio);
-                            }
-                            HitTarget::PlayPause => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                if held {
-                                    held = false;
-                                    if let Some(t) = playlist.get(index) {
-                                        player.play_file(&t.path)?;
+                            MouseEventKind::Down(MouseButton::Left) => {
+                                match ui.hit_target(m.column, m.row) {
+                                    HitTarget::Progress(ratio) => {
+                                        held = false;
+                                        dragging_progress = true;
+                                        dragging_list_scroll = false;
+                                        let _ = player.seek_ratio(ratio);
                                     }
+                                    HitTarget::ListScroll(ratio) => {
+                                        dragging_list_scroll = true;
+                                        dragging_progress = false;
+                                        ui.list_scroll_ratio(ratio);
+                                    }
+                                    HitTarget::PlayPause => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        if held {
+                                            held = false;
+                                            if let Some(t) = playlist.get(index) {
+                                                player.play_file(&t.path)?;
+                                            }
+                                        } else {
+                                            let _ = player.toggle_pause();
+                                        }
+                                    }
+                                    HitTarget::Prev => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        held = false;
+                                        if !player.is_idle()
+                                            && player.position() > Duration::from_secs(3)
+                                        {
+                                            let _ = player.seek(Duration::ZERO);
+                                        } else if index > 0 {
+                                            index -= 1;
+                                            if let Some(t) = playlist.get(index) {
+                                                player.play_file(&t.path)?;
+                                            }
+                                        } else {
+                                            let _ = player.seek(Duration::ZERO);
+                                        }
+                                    }
+                                    HitTarget::Next => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        held = false;
+                                        if index + 1 < playlist.len() {
+                                            index += 1;
+                                            if let Some(t) = playlist.get(index) {
+                                                player.play_file(&t.path)?;
+                                            }
+                                        } else if loop_mode == LoopMode::Playlist {
+                                            index = 0;
+                                            if let Some(t) = playlist.get(index) {
+                                                player.play_file(&t.path)?;
+                                            }
+                                        } else {
+                                            ui.toast("already at last track");
+                                        }
+                                    }
+                                    HitTarget::Volume => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let muted = player.toggle_mute();
+                                        ui.toast(if muted { "muted" } else { "unmuted" });
+                                    }
+                                    HitTarget::VolumeUp => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let v = player.volume_step_up();
+                                        ui.toast(format!("volume {v}%"));
+                                    }
+                                    HitTarget::VolumeDown => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let v = player.volume_step_down();
+                                        ui.toast(format!("volume {v}%"));
+                                    }
+                                    HitTarget::Eq => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let eq = player.cycle_eq();
+                                        ui.toast(format!("eq {}", eq.label()));
+                                    }
+                                    HitTarget::Speed => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let s = player.speed_up();
+                                        ui.toast(format!("speed {s:.1}x"));
+                                    }
+                                    HitTarget::Pitch => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let p = player.pitch_up();
+                                        ui.toast(format!("pitch {p:.2}"));
+                                    }
+                                    HitTarget::CavaToggle => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        let msg = ui.toggle_cava();
+                                        ui.toast(msg);
+                                    }
+                                    HitTarget::Jump(n) => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                        if n >= 1 && n <= playlist.len() {
+                                            held = false;
+                                            index = n - 1;
+                                            if let Some(t) = playlist.get(index) {
+                                                player.play_file(&t.path)?;
+                                            }
+                                        }
+                                    }
+                                    HitTarget::None => {
+                                        dragging_progress = false;
+                                        dragging_list_scroll = false;
+                                    }
+                                }
+                            }
+                            MouseEventKind::Drag(MouseButton::Left) => {
+                                if dragging_list_scroll {
+                                    if let Some(ratio) = ui.list_scroll_ratio_at_row(m.row) {
+                                        ui.list_scroll_ratio(ratio);
+                                    }
+                                } else if dragging_progress {
+                                    if let Some(ratio) = ui.progress_ratio_at_col(m.column) {
+                                        let _ = player.seek_ratio(ratio);
+                                    }
+                                }
+                            }
+                            MouseEventKind::Up(MouseButton::Left) => {
+                                dragging_progress = false;
+                                dragging_list_scroll = false;
+                            }
+                            MouseEventKind::ScrollUp => {
+                                if ui.pointer_over_list(m.column, m.row) {
+                                    ui.list_scroll_by(-3);
                                 } else {
-                                    let _ = player.toggle_pause();
+                                    player.seek_short_back();
                                 }
                             }
-                            HitTarget::Prev => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                held = false;
-                                if !player.is_idle()
-                                    && player.position() > Duration::from_secs(3)
-                                {
-                                    let _ = player.seek(Duration::ZERO);
-                                } else if index > 0 {
-                                    index -= 1;
-                                    if let Some(t) = playlist.get(index) {
-                                        player.play_file(&t.path)?;
-                                    }
+                            MouseEventKind::ScrollDown => {
+                                if ui.pointer_over_list(m.column, m.row) {
+                                    ui.list_scroll_by(3);
                                 } else {
-                                    let _ = player.seek(Duration::ZERO);
+                                    player.seek_short_forward();
                                 }
                             }
-                            HitTarget::Next => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                held = false;
-                                if index + 1 < playlist.len() {
-                                    index += 1;
-                                    if let Some(t) = playlist.get(index) {
-                                        player.play_file(&t.path)?;
-                                    }
-                                } else if loop_mode == LoopMode::Playlist {
-                                    index = 0;
-                                    if let Some(t) = playlist.get(index) {
-                                        player.play_file(&t.path)?;
-                                    }
-                                } else {
-                                    ui.toast("already at last track");
-                                }
-                            }
-                            HitTarget::Volume => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let muted = player.toggle_mute();
-                                ui.toast(if muted { "muted" } else { "unmuted" });
-                            }
-                            HitTarget::VolumeUp => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let v = player.volume_step_up();
-                                ui.toast(format!("volume {v}%"));
-                            }
-                            HitTarget::VolumeDown => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let v = player.volume_step_down();
-                                ui.toast(format!("volume {v}%"));
-                            }
-                            HitTarget::Eq => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let eq = player.cycle_eq();
-                                ui.toast(format!("eq {}", eq.label()));
-                            }
-                            HitTarget::Speed => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let s = player.speed_up();
-                                ui.toast(format!("speed {s:.1}x"));
-                            }
-                            HitTarget::Pitch => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let p = player.pitch_up();
-                                ui.toast(format!("pitch {p:.2}"));
-                            }
-                            HitTarget::CavaToggle => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                let msg = ui.toggle_cava();
-                                ui.toast(msg);
-                            }
-                            HitTarget::Jump(n) => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                                if n >= 1 && n <= playlist.len() {
-                                    held = false;
-                                    index = n - 1;
-                                    if let Some(t) = playlist.get(index) {
-                                        player.play_file(&t.path)?;
-                                    }
-                                }
-                            }
-                            HitTarget::None => {
-                                dragging_progress = false;
-                                dragging_list_scroll = false;
-                            }
-                        },
-                        MouseEventKind::Drag(MouseButton::Left) => {
-                            if dragging_list_scroll {
-                                if let Some(ratio) = ui.list_scroll_ratio_at_row(m.row) {
-                                    ui.list_scroll_ratio(ratio);
-                                }
-                            } else if dragging_progress {
-                                if let Some(ratio) = ui.progress_ratio_at_col(m.column) {
-                                    let _ = player.seek_ratio(ratio);
-                                }
-                            }
-                        }
-                        MouseEventKind::Up(MouseButton::Left) => {
-                            dragging_progress = false;
-                            dragging_list_scroll = false;
-                        }
-                        MouseEventKind::ScrollUp => {
-                            if ui.pointer_over_list(m.column, m.row) {
-                                ui.list_scroll_by(-3);
-                            } else {
-                                player.seek_short_back();
-                            }
-                        }
-                        MouseEventKind::ScrollDown => {
-                            if ui.pointer_over_list(m.column, m.row) {
-                                ui.list_scroll_by(3);
-                            } else {
-                                player.seek_short_forward();
-                            }
-                        }
-                        _ => {}
+                            _ => {}
                         }
                     }
                     Ok(_) => {}
@@ -868,6 +875,59 @@ fn handle_key(key: KeyEvent, player: &mut Player) -> Action {
     }
 }
 
+fn cmd_download(
+    query: Option<&str>,
+    provider: Option<download::Provider>,
+    audio: bool,
+    video: bool,
+    both: bool,
+    output: Option<&std::path::Path>,
+    audio_format: &str,
+    interactive: bool,
+    ui_override: Option<optmusic::config::DlUiMode>,
+    music_dir_flag: &str,
+) -> Result<()> {
+    let kind_flag = if both {
+        Some(MediaKind::Both)
+    } else if audio {
+        Some(MediaKind::Audio)
+    } else if video {
+        Some(MediaKind::Video)
+    } else {
+        None
+    };
+
+    let use_wizard = interactive || query.is_none_or(|q| q.trim().is_empty());
+    if use_wizard {
+        let ui_mode = ui_override.unwrap_or_else(|| optmusic::config::AppConfig::load().dl_ui);
+        return download::run_interactive(
+            music_dir_flag,
+            query,
+            provider,
+            kind_flag,
+            output,
+            audio_format,
+            ui_mode,
+        );
+    }
+
+    let query = query.unwrap().trim().to_string();
+    let provider = provider
+        .or_else(|| download::detect_provider(&query))
+        .unwrap_or(download::Provider::Youtube);
+    let kind = kind_flag.unwrap_or_else(|| provider.default_kind());
+    let output_dir = download::resolve_output_dir(output, music_dir_flag)?;
+
+    let req = DownloadRequest {
+        query,
+        provider,
+        kind,
+        output_dir,
+        audio_format: audio_format.to_string(),
+    };
+    download::run_download(&req)
+}
+
 fn cmd_info(path: &std::path::Path) -> Result<()> {
     if !path.exists() {
         anyhow::bail!("path does not exist: {}", path.display());
@@ -892,12 +952,12 @@ fn cmd_info(path: &std::path::Path) -> Result<()> {
     println!("  {}  {}", "size".with(DIM), size_h.with(GRAY));
     println!("  {}  {}", "format".with(DIM), fmt.with(GRAY));
 
-    match player::probe_duration(path) {
+    match optmusic::player::probe_duration(path) {
         Some(d) => {
             println!(
                 "  {}  {}",
                 "duration".with(DIM),
-                ui::fmt_time(d).with(BRIGHT)
+                optmusic::ui::fmt_time(d).with(BRIGHT)
             );
         }
         None => {
@@ -909,7 +969,7 @@ fn cmd_info(path: &std::path::Path) -> Result<()> {
 }
 
 fn cmd_list(path: &std::path::Path, recursive: bool) -> Result<()> {
-    let tracks = playlist::scan_path(path, recursive)?;
+    let tracks = optmusic::playlist::scan_path(path, recursive)?;
     if tracks.is_empty() {
         print_warn("no audio files found");
         return Ok(());

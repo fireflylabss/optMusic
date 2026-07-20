@@ -1,7 +1,10 @@
 //! Equalizer presets for MPV (`af` filters).
 
+use serde::{Deserialize, Serialize};
+
 /// Built-in EQ cycle (firemusic-style simple presets).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum EqPreset {
     Off,
     Bass,

@@ -1,0 +1,13 @@
+pub mod cava;
+pub mod cli;
+pub mod config;
+pub mod controller;
+pub mod dl_ui;
+pub mod download;
+pub mod eq;
+pub mod mpv;
+pub mod player;
+pub mod playlist;
+pub mod preview;
+pub mod settings;
+pub mod ui;

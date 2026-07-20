@@ -7,8 +7,8 @@ use walkdir::WalkDir;
 
 /// Known audio extensions optMusic prefers (MPV handles many more).
 const AUDIO_EXTS: &[&str] = &[
-    "mp3", "flac", "ogg", "oga", "wav", "wave", "aac", "m4a", "mp4", "opus", "wma",
-    "aiff", "aif", "alac", "webm", "mkv",
+    "mp3", "flac", "ogg", "oga", "wav", "wave", "aac", "m4a", "mp4", "opus", "wma", "aiff", "aif",
+    "alac", "webm", "mkv",
 ];
 
 #[derive(Debug, Clone)]

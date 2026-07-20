@@ -18,6 +18,21 @@ Help (`?` / `h`) is a **right sidebar**, while settings (`c`) and playlist (`l`)
 
 ## Install
 
+### Desktop app
+
+The React/Tauri desktop client lives alongside the Rust CLI. Install Bun, then
+run the build from the repository root:
+
+```bash
+bun install
+bun run build
+```
+
+`bun run build` also runs a locked dependency install automatically, so the
+documented command remains reproducible from a clean checkout. Start the
+frontend during development with `bun run dev`; package the desktop client
+with `bun run tauri build` (Tauri system WebKit dependencies may be required).
+
 ### Arch / CachyOS (AUR)
 
 ```bash
@@ -32,16 +47,18 @@ paru -S optmusic
 |-----|-----|
 | **libmpv** | playback engine (required) |
 | **cava** | spectrum strip (optional) |
+| **yt-dlp** | download command (optional) |
+| **ffmpeg** | audio extract/convert for downloads (optional) |
 
 ```bash
 # Arch / CachyOS (if building from source)
-sudo pacman -S mpv cava
+sudo pacman -S mpv cava yt-dlp ffmpeg
 
 # Debian / Ubuntu
-sudo apt install libmpv-dev pkg-config cava
+sudo apt install libmpv-dev pkg-config cava yt-dlp ffmpeg
 
 # Fedora
-sudo dnf install mpv-libs-devel pkgconf-pkg-config cava
+sudo dnf install mpv-libs-devel pkgconf-pkg-config cava yt-dlp ffmpeg
 ```
 
 PipeWire or PulseAudio should be running if you use cava.
@@ -52,7 +69,7 @@ PipeWire or PulseAudio should be running if you use cava.
 export CARGO_TARGET_DIR="$(pwd)/target"
 cargo install --path . --force
 # or a tagged release:
-cargo install --git https://github.com/fireflylabss/optMusic --tag v0.2.6
+cargo install --git https://github.com/fireflylabss/optMusic --tag v0.2.7
 ```
 
 | Command | Description |
@@ -72,6 +89,9 @@ msc play -m ~/Music --pitch 1.05
 msc play album/ --loop-file --cava
 msc ls ./music --recursive
 msc i song.mp3
+msc dl                                              # interactive wizard
+msc dl https://youtu.be/… --audio                   # direct → cwd
+msc download -p soundcloud "ambient" -a
 msc --help
 ```
 
@@ -95,6 +115,30 @@ msc --help
 | `-s` / `--shuffle` | shuffle playlist |
 | `-l` / `--loop` / `--repeat` | loop playlist |
 | `--loop-file` / `--repeat-one` | repeat current track |
+
+### Download (`download` / `dl` / `d`)
+
+Uses system **yt-dlp**. Interactive wizard (`msc dl`):
+
+1. Pick **provider** (YouTube / YouTube Music / SoundCloud)
+2. Enter a **search** or **URL(s)** — multiple URLs with `url1;url2`
+3. Search shows **8 results/page** (n/p pages, multi-select); results cached 3 days in `~/option/music/cache/dl/`
+4. After picking **one** item, opt-in **preview** opens the normal optMusic player on a temp audio file (`q` back)
+5. Choose a **preset**, then quality / filetype / embeds (one screen each)
+6. Batch options are the intersection of all selected items
+7. Saves to the **current directory** by default (opt-in other dir)
+
+| Flag | Meaning |
+|------|---------|
+| `QUERY` | URL or search (omit → interactive wizard) |
+| `-p` / `--provider` | `youtube` · `youtube-music` · `soundcloud` |
+| `-a` / `--audio` | extract audio only (direct mode) |
+| `--video` | download video only (direct mode) |
+| `--both` | video file + separate audio file (direct mode) |
+| `-o` / `--output DIR` | output directory (default: cwd) |
+| `--audio-format FMT` | audio container for direct `--audio` (default `mp3`) |
+| `-i` / `--interactive` | force the wizard |
+| `--ui arrows\|type` | wizard UI (default `arrows`; also settings `c` → Dl UI) |
 
 ### Keyboard
 
@@ -133,6 +177,7 @@ Left sidebar. Persisted in `~/option/music/config.toml`:
 | Cava styles | Style (`bars` / `dense` / `mirror` / `dots`) and height |
 | LDM | Fewer animations, lighter redraw |
 | Accent | Color accent (presets or `#RRGGBB` in the file) |
+| Dl UI | Download wizard UI: `arrows` (default) or `type` |
 
 In the sidebar: `↑↓` move · `enter` / click toggle · `←→` cycle · `d` reset · `c` / Esc close.
 
@@ -170,6 +215,7 @@ Off by default. With `--cava` or `v`, and `cava` installed, optMusic draws a spe
 - Mute, long seek, EQ presets, crossfade, speed & pitch
 - Default music directory (`~/Music`)
 - Optional cava spectrum bars (opt-in)
+- yt-dlp downloader (YouTube / YouTube Music / SoundCloud)
 - Mouse scrub + clickable controls
 - Centered B&W UI on an **alternate screen** (zero scrollback leak)
 - Instant controls (no Enter)
@@ -181,6 +227,7 @@ Off by default. With `--cava` or `v`, and `cava` installed, optMusic draws a spe
 - **libmpv** (see Install)
 - System audio (PipeWire / PulseAudio / ALSA)
 - Optional: **cava** for the spectrum strip
+- Optional: **yt-dlp** (+ **ffmpeg** for audio) for `msc dl`
 
 ## License
 

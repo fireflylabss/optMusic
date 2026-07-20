@@ -4,13 +4,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use libmpv2::Mpv;
 use libmpv2::events::Event as MpvEvent;
 use libmpv2::mpv_end_file_reason;
-use libmpv2::Mpv;
 
 use crate::config::VOLUME_MAX_NORMAL;
 use crate::eq::EqPreset;
-use crate::mpv::{create_player, MpvConfig};
+use crate::mpv::{MpvConfig, create_player};
 
 const SEEK_SHORT_SECS: i64 = 5;
 const SEEK_LONG_SECS: i64 = 60;
@@ -179,11 +179,16 @@ impl Player {
         let path_str = path
             .to_str()
             .with_context(|| format!("non-UTF8 path: {}", path.display()))?;
+        self.play_uri(path_str)
+            .with_context(|| format!("cannot load {}", path.display()))
+    }
 
+    /// Play a local path or remote URL (YouTube / SoundCloud via mpv+yt-dlp).
+    pub fn play_uri(&mut self, uri: &str) -> Result<()> {
         self.drain_events();
         self.mpv
-            .command("loadfile", &[path_str, "replace"])
-            .map_err(|e| anyhow::anyhow!("cannot load {}: {e:?}", path.display()))?;
+            .command("loadfile", &[uri, "replace"])
+            .map_err(|e| anyhow::anyhow!("cannot load {uri}: {e:?}"))?;
         // Drop EndFile(Stop) from the replace so next/prev aren't treated as eof.
         self.drain_events();
 
@@ -193,10 +198,9 @@ impl Player {
         let _ = self.mpv.set_property("speed", self.speed);
         let _ = self.mpv.set_property("pitch", self.pitch);
         let _ = self.mpv.set_property("af", self.eq.af_filter());
-        let _ = self.mpv.set_property(
-            "loop-file",
-            if self.loop_track { "inf" } else { "no" },
-        );
+        let _ = self
+            .mpv
+            .set_property("loop-file", if self.loop_track { "inf" } else { "no" });
 
         self.stopped = false;
         self.finished = false;
@@ -357,6 +361,12 @@ pub fn probe_duration(path: &Path) -> Option<Duration> {
         Some(Duration::from_secs_f64(d))
     } else {
         None
+    }
+}
+
+impl Drop for Player {
+    fn drop(&mut self) {
+        let _ = self.mpv.command("stop", &[]);
     }
 }
 
