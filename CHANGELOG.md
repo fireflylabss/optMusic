@@ -4,11 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**Desktop** entries are full releases (not beta), but the desktop shell is still **unstable** — expect bugs while it matures. The CLI track is separate and versioned independently.
+**Desktop** 0.1.0–0.1.1 were full (unstable) releases. From **0.1.2** the desktop track is **beta** until further notice — not shipped as a GitHub Release or AUR package. The CLI track is separate and versioned independently.
 
-## [Desktop 0.1.2] - 2026-07-21
+## [Desktop 0.1.2-beta] - 2026-07-21
 
-> **Unstable release** — Desktop builds are real releases (not beta), but the shell is still early; bugs and rough edges are expected.
+> **Beta** — development snapshot only. Not a GitHub Release and not published to the AUR; expect breaking changes and rough edges.
 
 ### Changed
 
